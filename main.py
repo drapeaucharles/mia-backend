@@ -494,8 +494,9 @@ async def health_check():
     
     # Check database connection (optional - don't fail if DB is down)
     try:
+        from sqlalchemy import text
         db = next(get_db())
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         health_status["database"] = True
     except Exception as e:
         health_status["database"] = False
