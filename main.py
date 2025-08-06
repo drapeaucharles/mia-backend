@@ -14,7 +14,7 @@ from schemas import (
     IdleJobResultRequest, IdleJobResultResponse,
     BuybackResponse, SystemMetricsResponse
 )
-from queue import RedisQueue
+from redis_queue import RedisQueue
 from utils import generate_auth_key
 import db as database
 from runpod_manager import RunPodManager
