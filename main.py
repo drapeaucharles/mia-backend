@@ -9,11 +9,17 @@ from dotenv import load_dotenv
 from db import get_db, init_db
 from schemas import (
     ChatRequest, ChatResponse, JobResult, JobResultRequest,
-    MinerRegistration, MinerResponse, JobResponse
+    MinerRegistration, MinerResponse, JobResponse,
+    IdleJobRequest, IdleJobResponse, IdleJobNextResponse,
+    IdleJobResultRequest, IdleJobResultResponse,
+    BuybackResponse, SystemMetricsResponse
 )
 from queue import RedisQueue
 from utils import generate_auth_key
 import db as database
+from runpod_manager import RunPodManager
+from buyback import BuybackEngine
+import asyncio
 
 load_dotenv()
 
@@ -21,6 +27,10 @@ app = FastAPI(title="MIA Backend", version="1.0.0")
 
 # Initialize Redis queue
 redis_queue = RedisQueue()
+
+# Initialize RunPod manager and buyback engine
+runpod_manager = RunPodManager()
+buyback_engine = BuybackEngine()
 
 @app.on_event("startup")
 async def startup_event():
@@ -188,6 +198,279 @@ async def register_miner(request: MinerRegistration, db=Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/idle-job", response_model=IdleJobResponse)
+async def create_idle_job(request: IdleJobRequest, db=Depends(get_db)):
+    """
+    External clients submit AI workloads when main queue is idle
+    """
+    try:
+        # Validate API key (simple validation, enhance in production)
+        if not request.api_key or len(request.api_key) < 16:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        
+        # Estimate revenue
+        revenue_estimate = runpod_manager.estimate_job_revenue(request.max_tokens)
+        
+        # Create idle job
+        idle_job = database.IdleJob(
+            prompt=request.prompt,
+            submitted_by=request.api_key[:8] + "****",  # Mask API key
+            status="pending"
+        )
+        db.add(idle_job)
+        db.commit()
+        db.refresh(idle_job)
+        
+        # Add to idle jobs queue
+        redis_queue.push_idle_job({
+            "job_id": idle_job.id,
+            "prompt": request.prompt,
+            "max_tokens": request.max_tokens
+        })
+        
+        return IdleJobResponse(
+            job_id=idle_job.id,
+            status="queued",
+            message="Idle job queued successfully",
+            estimated_revenue_usd=revenue_estimate["revenue_usd"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/idle-job/next", response_model=IdleJobNextResponse)
+async def get_next_idle_job(db=Depends(get_db)):
+    """
+    Get next idle job when main queue is empty
+    """
+    try:
+        # First check if main queue is empty
+        main_queue_length = redis_queue.get_queue_length()
+        
+        if main_queue_length > 0:
+            return IdleJobNextResponse(
+                job_id=None,
+                prompt=None,
+                max_tokens=None,
+                message="Main queue not empty, process MIA jobs first"
+            )
+        
+        # Get next idle job
+        idle_job_data = redis_queue.pop_idle_job()
+        
+        if not idle_job_data:
+            return IdleJobNextResponse(
+                job_id=None,
+                prompt=None,
+                max_tokens=None,
+                message="No idle jobs available"
+            )
+        
+        # Update job status
+        idle_job = db.query(database.IdleJob).filter(
+            database.IdleJob.id == idle_job_data["job_id"]
+        ).first()
+        
+        if idle_job:
+            idle_job.status = "processing"
+            db.commit()
+        
+        return IdleJobNextResponse(
+            job_id=idle_job_data["job_id"],
+            prompt=idle_job_data["prompt"],
+            max_tokens=idle_job_data.get("max_tokens", 500),
+            message="Idle job retrieved successfully"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/idle-job/result", response_model=IdleJobResultResponse)
+async def submit_idle_job_result(request: IdleJobResultRequest, db=Depends(get_db)):
+    """
+    Submit results from processed idle jobs
+    """
+    try:
+        # Update idle job
+        idle_job = db.query(database.IdleJob).filter(
+            database.IdleJob.id == request.job_id
+        ).first()
+        
+        if not idle_job:
+            raise HTTPException(status_code=404, detail="Idle job not found")
+        
+        idle_job.status = "completed" if not request.error_message else "failed"
+        idle_job.output_tokens = request.output_tokens
+        idle_job.usd_earned = request.usd_earned
+        idle_job.result = request.output
+        idle_job.runpod_job_id = request.runpod_job_id
+        idle_job.error_message = request.error_message
+        idle_job.completed_at = datetime.utcnow()
+        
+        # Update system metrics
+        if request.usd_earned > 0:
+            # Update RunPod income
+            income_metric = db.query(database.SystemMetrics).filter(
+                database.SystemMetrics.metric_name == "runpod_income_usd"
+            ).first()
+            
+            if income_metric:
+                income_metric.value += request.usd_earned
+            else:
+                income_metric = database.SystemMetrics(
+                    metric_name="runpod_income_usd",
+                    value=request.usd_earned
+                )
+                db.add(income_metric)
+            
+            # Update job count
+            jobs_metric = db.query(database.SystemMetrics).filter(
+                database.SystemMetrics.metric_name == "total_idle_jobs_processed"
+            ).first()
+            
+            if jobs_metric:
+                jobs_metric.value += 1
+            else:
+                jobs_metric = database.SystemMetrics(
+                    metric_name="total_idle_jobs_processed",
+                    value=1
+                )
+                db.add(jobs_metric)
+        
+        db.commit()
+        
+        # Get updated income balance
+        income_metric = db.query(database.SystemMetrics).filter(
+            database.SystemMetrics.metric_name == "runpod_income_usd"
+        ).first()
+        
+        return IdleJobResultResponse(
+            status="completed",
+            message="Idle job result stored successfully",
+            total_income_usd=income_metric.value if income_metric else 0.0
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/trigger-buyback", response_model=BuybackResponse)
+async def trigger_buyback(manual: bool = False, db=Depends(get_db)):
+    """
+    Trigger token buyback and burn (manual or automatic)
+    """
+    try:
+        result = buyback_engine.check_and_execute_buyback(db)
+        
+        if result["triggered"]:
+            return BuybackResponse(
+                status="success",
+                message="Buyback executed successfully",
+                amount_usd=result["amount_usd"],
+                tokens_burned=result["tokens_burned"],
+                transaction_hash=result["burn_tx_hash"]
+            )
+        else:
+            return BuybackResponse(
+                status="not_triggered",
+                message=result["reason"],
+                amount_usd=None,
+                tokens_burned=None,
+                transaction_hash=None
+            )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/metrics", response_model=SystemMetricsResponse)
+async def get_system_metrics(db=Depends(get_db)):
+    """
+    Get system metrics including RunPod income and buyback stats
+    """
+    try:
+        metrics = buyback_engine.get_buyback_history(db)
+        
+        return SystemMetricsResponse(
+            runpod_income_usd=metrics.get("runpod_income_usd", 0.0),
+            total_idle_jobs_processed=int(metrics.get("total_idle_jobs_processed", 0)),
+            total_buyback_usd=metrics.get("total_buyback_usd", 0.0),
+            last_buyback_timestamp=datetime.fromisoformat(metrics["last_buyback_timestamp"]) 
+                if metrics.get("last_buyback_timestamp") else None
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/idle-job/process/{job_id}")
+async def process_idle_job_with_runpod(job_id: int, db=Depends(get_db)):
+    """
+    Process an idle job using RunPod (for testing/manual processing)
+    """
+    try:
+        # Get idle job
+        idle_job = db.query(database.IdleJob).filter(
+            database.IdleJob.id == job_id
+        ).first()
+        
+        if not idle_job:
+            raise HTTPException(status_code=404, detail="Idle job not found")
+        
+        if idle_job.status != "pending":
+            raise HTTPException(status_code=400, detail="Job already processed")
+        
+        # Update status
+        idle_job.status = "processing"
+        db.commit()
+        
+        # Process with RunPod
+        result = await runpod_manager.process_idle_job(idle_job.prompt)
+        
+        if result["success"]:
+            # Update job with results
+            idle_job.status = "completed"
+            idle_job.output_tokens = result["output_tokens"]
+            idle_job.usd_earned = result["revenue_usd"]
+            idle_job.result = result["output"]
+            idle_job.runpod_job_id = result["job_id"]
+            idle_job.completed_at = datetime.utcnow()
+            
+            # Update income metrics
+            income_metric = db.query(database.SystemMetrics).filter(
+                database.SystemMetrics.metric_name == "runpod_income_usd"
+            ).first()
+            
+            if income_metric:
+                income_metric.value += result["revenue_usd"]
+            else:
+                income_metric = database.SystemMetrics(
+                    metric_name="runpod_income_usd",
+                    value=result["revenue_usd"]
+                )
+                db.add(income_metric)
+            
+            db.commit()
+            
+            return {
+                "status": "success",
+                "output": result["output"],
+                "tokens": result["output_tokens"],
+                "revenue_usd": result["revenue_usd"]
+            }
+        else:
+            idle_job.status = "failed"
+            idle_job.error_message = result.get("error", "Unknown error")
+            db.commit()
+            
+            raise HTTPException(status_code=500, detail=result.get("error"))
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/health")
 async def health_check():
     """Detailed health check"""
@@ -200,10 +483,14 @@ async def health_check():
         db.execute("SELECT 1")
         db_status = True
         
+        # Check RunPod connection
+        runpod_status = await runpod_manager.health_check()
+        
         return {
             "status": "healthy",
             "redis": redis_status,
             "database": db_status,
+            "runpod": runpod_status,
             "timestamp": datetime.utcnow().isoformat()
         }
     except Exception as e:

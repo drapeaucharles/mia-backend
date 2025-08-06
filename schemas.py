@@ -82,3 +82,70 @@ class MinerModel(BaseModel):
     
     class Config:
         from_attributes = True
+
+class IdleJobRequest(BaseModel):
+    """Request model for /idle-job endpoint"""
+    prompt: str = Field(..., description="The prompt to process")
+    api_key: str = Field(..., description="API key for authentication")
+    max_tokens: Optional[int] = Field(500, description="Maximum tokens to generate")
+
+class IdleJobResponse(BaseModel):
+    """Response model for /idle-job endpoint"""
+    job_id: int = Field(..., description="Idle job ID")
+    status: str = Field(..., description="Job status")
+    message: str = Field(..., description="Status message")
+    estimated_revenue_usd: Optional[float] = Field(None, description="Estimated revenue in USD")
+
+class IdleJobNextResponse(BaseModel):
+    """Response model for /idle-job/next endpoint"""
+    job_id: Optional[int] = Field(None, description="Idle job ID")
+    prompt: Optional[str] = Field(None, description="The prompt to process")
+    max_tokens: Optional[int] = Field(None, description="Maximum tokens to generate")
+    message: str = Field(..., description="Status message")
+
+class IdleJobResultRequest(BaseModel):
+    """Request model for /idle-job/result endpoint"""
+    job_id: int = Field(..., description="Idle job ID")
+    output: str = Field(..., description="Generated output")
+    output_tokens: int = Field(..., description="Number of tokens generated")
+    usd_earned: float = Field(..., description="USD earned from this job")
+    runpod_job_id: Optional[str] = Field(None, description="RunPod job ID")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+
+class IdleJobResultResponse(BaseModel):
+    """Response model for /idle-job/result endpoint"""
+    status: str = Field(..., description="Result status")
+    message: str = Field(..., description="Status message")
+    total_income_usd: float = Field(..., description="Total RunPod income accumulated")
+
+class BuybackResponse(BaseModel):
+    """Response model for /trigger-buyback endpoint"""
+    status: str = Field(..., description="Buyback status")
+    message: str = Field(..., description="Status message")
+    amount_usd: Optional[float] = Field(None, description="Amount used for buyback")
+    tokens_burned: Optional[float] = Field(None, description="Number of tokens burned (simulated)")
+    transaction_hash: Optional[str] = Field(None, description="Transaction hash (simulated)")
+
+class SystemMetricsResponse(BaseModel):
+    """Response model for system metrics"""
+    runpod_income_usd: float = Field(..., description="Total RunPod income")
+    total_idle_jobs_processed: int = Field(..., description="Total idle jobs processed")
+    total_buyback_usd: float = Field(..., description="Total USD used for buybacks")
+    last_buyback_timestamp: Optional[datetime] = Field(None, description="Last buyback timestamp")
+
+class IdleJobModel(BaseModel):
+    """Idle job model for API responses"""
+    id: int
+    prompt: str
+    status: str
+    submitted_by: str
+    created_at: datetime
+    completed_at: Optional[datetime]
+    output_tokens: Optional[int]
+    usd_earned: Optional[float]
+    result: Optional[str]
+    runpod_job_id: Optional[str]
+    error_message: Optional[str]
+    
+    class Config:
+        from_attributes = True
