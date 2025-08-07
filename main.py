@@ -45,6 +45,11 @@ async def startup_event():
     try:
         init_db()
         print("Database initialized successfully")
+        
+        # Run migrations
+        from run_migrations import run_all_migrations
+        run_all_migrations()
+        
     except Exception as e:
         print(f"Database initialization error: {e}")
         # Continue running even if DB init fails for healthcheck
