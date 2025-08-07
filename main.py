@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Optional
 import uuid
 import os
+import logging
 from dotenv import load_dotenv
+from sqlalchemy import func
 
 from db import get_db, init_db
 from schemas import (
@@ -12,7 +14,8 @@ from schemas import (
     MinerRegistration, MinerResponse, JobResponse,
     IdleJobRequest, IdleJobResponse, IdleJobNextResponse,
     IdleJobResultRequest, IdleJobResultResponse,
-    BuybackResponse, SystemMetricsResponse
+    BuybackResponse, SystemMetricsResponse,
+    GolemJobRequest, GolemJobResponse
 )
 from redis_queue import RedisQueue
 from utils import generate_auth_key
@@ -22,6 +25,9 @@ from buyback import BuybackEngine
 import asyncio
 
 load_dotenv()
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MIA Backend", version="1.0.0")
 
@@ -494,7 +500,7 @@ async def health_check():
     
     # Check database connection (optional - don't fail if DB is down)
     try:
-        from sqlalchemy import text
+        from sqlalchemy import text, func
         db = next(get_db())
         db.execute(text("SELECT 1"))
         health_status["database"] = True
@@ -513,6 +519,74 @@ async def health_check():
     # Return 200 OK even if some services are down
     # This allows the app to start even without all dependencies
     return health_status
+
+@app.post("/report_golem_job", response_model=GolemJobResponse)
+async def report_golem_job(request: GolemJobRequest, db=Depends(get_db)):
+    """
+    Receive fallback compute reports from miners (Golem jobs)
+    """
+    try:
+        # Validate timestamp (must be within 2 minutes)
+        time_diff = abs((datetime.utcnow() - request.timestamp).total_seconds())
+        if time_diff > 120:  # 2 minutes
+            raise HTTPException(
+                status_code=400,
+                detail="Timestamp must be within 2 minutes of current time"
+            )
+        
+        # Validate GLM estimate is reasonable (max 1 GLM per hour)
+        max_glm_per_hour = 1.0
+        max_expected_glm = (request.duration_sec / 3600) * max_glm_per_hour
+        if request.estimated_glm > max_expected_glm:
+            raise HTTPException(
+                status_code=400,
+                detail=f"GLM estimate too high for duration. Max expected: {max_expected_glm:.4f}"
+            )
+        
+        # Check if miner exists
+        miner_exists = db.query(database.Miner).filter(
+            database.Miner.name == request.miner_name
+        ).first()
+        
+        if not miner_exists:
+            # Auto-register unknown miners for fallback jobs
+            auth_key = generate_auth_key()
+            new_miner = database.Miner(
+                name=request.miner_name,
+                auth_key=auth_key,
+                job_count=0
+            )
+            db.add(new_miner)
+            db.commit()
+        
+        # Store Golem job report
+        golem_job = database.GolemJob(
+            miner_name=request.miner_name,
+            duration_sec=request.duration_sec,
+            estimated_glm=request.estimated_glm,
+            timestamp=request.timestamp
+        )
+        db.add(golem_job)
+        db.commit()
+        
+        # Calculate total GLM earned by this miner
+        total_glm = db.query(func.sum(database.GolemJob.estimated_glm)).filter(
+            database.GolemJob.miner_name == request.miner_name
+        ).scalar() or 0.0
+        
+        logger.info(f"Golem job reported: {request.miner_name} - {request.duration_sec}s - {request.estimated_glm} GLM")
+        
+        return GolemJobResponse(
+            status="success",
+            message="Fallback compute report stored successfully",
+            total_glm=float(total_glm)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reporting Golem job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

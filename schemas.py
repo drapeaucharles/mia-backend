@@ -149,3 +149,28 @@ class IdleJobModel(BaseModel):
     
     class Config:
         from_attributes = True
+
+class GolemJobRequest(BaseModel):
+    """Request model for /report_golem_job endpoint"""
+    miner_name: str = Field(..., description="Name of the miner")
+    duration_sec: int = Field(..., description="Duration of fallback compute in seconds", gt=0)
+    estimated_glm: float = Field(..., description="Estimated GLM earned", gt=0)
+    timestamp: datetime = Field(..., description="Timestamp when fallback ended")
+
+class GolemJobResponse(BaseModel):
+    """Response model for /report_golem_job endpoint"""
+    status: str = Field(..., description="Report status")
+    message: str = Field(..., description="Status message")
+    total_glm: float = Field(..., description="Total GLM earned by this miner")
+
+class GolemJobModel(BaseModel):
+    """Golem job model for API responses"""
+    id: int
+    miner_name: str
+    duration_sec: int
+    estimated_glm: float
+    timestamp: datetime
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True

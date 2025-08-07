@@ -73,6 +73,16 @@ class SystemMetrics(Base):
     value = Column(Float, default=0.0)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+class GolemJob(Base):
+    __tablename__ = "golem_jobs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    miner_name = Column(String(255), nullable=False, index=True)
+    duration_sec = Column(Integer, nullable=False)
+    estimated_glm = Column(Float, nullable=False)
+    timestamp = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 def get_db():
     """Dependency to get database session"""
     db = SessionLocal()

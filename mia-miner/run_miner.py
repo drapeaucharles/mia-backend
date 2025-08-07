@@ -13,6 +13,8 @@ import requests
 from datetime import datetime
 from typing import Dict, Optional, Any
 import random
+import signal
+from fallback_manager import FallbackManager
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +33,12 @@ class MIAMiner:
         self.poll_interval = int(os.environ.get('POLL_INTERVAL', '5'))
         self.miner_id = None
         self.auth_key = None
+        
+        # Initialize fallback manager
+        self.fallback_manager = FallbackManager(self.miner_name, self.api_url)
+        self.fallback_idle_threshold = 10  # Start fallback after 10 seconds of no jobs
+        self.last_job_time = time.time()
+        self.fallback_active = False
         
         logger.info(f"MIA Miner initialized")
         logger.info(f"API URL: {self.api_url}")
@@ -185,6 +193,13 @@ class MIAMiner:
                     
                     if job.get('job_id'):
                         consecutive_errors = 0
+                        self.last_job_time = time.time()
+                        
+                        # Stop fallback if running
+                        if self.fallback_active:
+                            self.fallback_manager.stop_fallback()
+                            self.fallback_active = False
+                        
                         self.process_mia_job(job)
                         continue  # Skip sleep to process next job quickly
                     else:
@@ -199,9 +214,23 @@ class MIAMiner:
                             
                             if idle_job.get('job_id'):
                                 consecutive_errors = 0
+                                self.last_job_time = time.time()
+                                
+                                # Stop fallback if running
+                                if self.fallback_active:
+                                    self.fallback_manager.stop_fallback()
+                                    self.fallback_active = False
+                                
                                 self.process_idle_job(idle_job)
                                 continue  # Skip sleep to process next job quickly
                             else:
+                                # No jobs available - check if we should start fallback
+                                time_since_last_job = time.time() - self.last_job_time
+                                
+                                if time_since_last_job > self.fallback_idle_threshold and not self.fallback_active:
+                                    self.fallback_manager.start_fallback()
+                                    self.fallback_active = True
+                                
                                 logger.debug("No jobs available")
                 else:
                     consecutive_errors += 1
@@ -228,6 +257,11 @@ class MIAMiner:
                 logger.error(f"Unexpected error: {e}")
                 time.sleep(self.poll_interval)
         
+        # Cleanup fallback on exit
+        if self.fallback_active:
+            self.fallback_manager.stop_fallback()
+        
+        self.fallback_manager.cleanup()
         logger.info("Miner stopped")
 
 def check_gpu():
@@ -266,5 +300,14 @@ def main():
         logger.error(f"Fatal error: {e}")
         sys.exit(1)
 
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    logger.info("Shutdown signal received")
+    sys.exit(0)
+
 if __name__ == "__main__":
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     main()
