@@ -173,12 +173,15 @@ async def generate(req: GenerateRequest):
     if not llm:
         raise HTTPException(503, "Model not loaded")
     
+    # Format prompt for chat
+    formatted_prompt = f"User: {req.prompt}\nAssistant:"
+    
     params = SamplingParams(
         temperature=req.temperature,
         max_tokens=req.max_tokens
     )
     
-    outputs = llm.generate([req.prompt], params)
+    outputs = llm.generate([formatted_prompt], params)
     
     return GenerateResponse(
         text=outputs[0].outputs[0].text,
