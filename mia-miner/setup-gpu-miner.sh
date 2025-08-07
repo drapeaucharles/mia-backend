@@ -40,11 +40,17 @@ if ! command -v nvidia-smi &> /dev/null; then
     exit 1
 fi
 
-# Check if running with sudo when needed
+# Handle root user
 if [ "$EUID" -eq 0 ]; then
-    echo -e "${RED}Please do not run this script as root/sudo${NC}"
-    echo "The script will ask for sudo when needed."
-    exit 1
+    echo -e "${YELLOW}Running as root user${NC}"
+    # When running as root, we'll create the miner in /opt instead of home
+    INSTALL_USER="root"
+    INSTALL_BASE="/opt"
+    SUDO_CMD=""  # No need for sudo when already root
+else
+    INSTALL_USER="$USER"
+    INSTALL_BASE="$HOME"
+    SUDO_CMD="sudo"
 fi
 
 # Get GPU info
@@ -73,38 +79,39 @@ if [ "$GPU_MEMORY_GB" -lt 16 ]; then
 fi
 
 # Installation directory
-INSTALL_DIR="$HOME/mia-gpu-miner"
+INSTALL_DIR="$INSTALL_BASE/mia-gpu-miner"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
+echo -e "${GREEN}Installing to: $INSTALL_DIR${NC}"
 
 # Step 1: Install system dependencies
 echo -e "\n${YELLOW}[1/6] Installing system dependencies...${NC}"
-sudo apt-get update -qq
+$SUDO_CMD apt-get update -qq
 
 # Check Python version and install appropriate packages
 PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
 echo -e "${GREEN}Detected Python $PYTHON_VERSION${NC}"
 
 if [[ "$PYTHON_VERSION" == "3.8" ]]; then
-    sudo apt-get install -y -qq python3.8 python3.8-venv python3-pip git curl wget build-essential
+    $SUDO_CMD apt-get install -y -qq python3.8 python3.8-venv python3-pip git curl wget build-essential
     PYTHON_CMD="python3.8"
 elif [[ "$PYTHON_VERSION" == "3.9" ]]; then
-    sudo apt-get install -y -qq python3.9 python3.9-venv python3-pip git curl wget build-essential
+    $SUDO_CMD apt-get install -y -qq python3.9 python3.9-venv python3-pip git curl wget build-essential
     PYTHON_CMD="python3.9"
 elif [[ "$PYTHON_VERSION" == "3.10" ]]; then
-    sudo apt-get install -y -qq python3.10 python3.10-venv python3-pip git curl wget build-essential 2>/dev/null || {
+    $SUDO_CMD apt-get install -y -qq python3.10 python3.10-venv python3-pip git curl wget build-essential 2>/dev/null || {
         # Fallback if python3.10-venv not available
-        sudo apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
+        $SUDO_CMD apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
     }
     PYTHON_CMD="python3.10"
 elif [[ "$PYTHON_VERSION" == "3.11" ]]; then
-    sudo apt-get install -y -qq python3.11 python3.11-venv python3-pip git curl wget build-essential 2>/dev/null || {
-        sudo apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
+    $SUDO_CMD apt-get install -y -qq python3.11 python3.11-venv python3-pip git curl wget build-essential 2>/dev/null || {
+        $SUDO_CMD apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
     }
     PYTHON_CMD="python3.11"
 else
     # Default to python3
-    sudo apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
+    $SUDO_CMD apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
     PYTHON_CMD="python3"
 fi
 
@@ -559,7 +566,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=$USER
+User=$INSTALL_USER
 WorkingDirectory=$INSTALL_DIR
 Environment="PATH=$INSTALL_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="MIA_API_URL=${MIA_API_URL:-https://mia-backend-production.up.railway.app}"
@@ -598,13 +605,13 @@ POLL_INTERVAL=5
 EOF
 
 # Install service
-sudo mv "$SERVICE_FILE" /etc/systemd/system/mia-gpu-miner.service || {
+$SUDO_CMD mv "$SERVICE_FILE" /etc/systemd/system/mia-gpu-miner.service || {
     echo -e "${RED}Failed to install systemd service${NC}"
     echo "You can run the miner manually with: $INSTALL_DIR/start_miner.sh"
     exit 1
 }
-sudo systemctl daemon-reload
-sudo systemctl enable mia-gpu-miner.service
+$SUDO_CMD systemctl daemon-reload
+$SUDO_CMD systemctl enable mia-gpu-miner.service
 
 # Download model first (this takes time)
 echo -e "\n${YELLOW}Downloading Mistral 7B model (this may take 10-20 minutes)...${NC}"
@@ -653,15 +660,24 @@ rm download_model.py
 
 # Start service
 echo -e "\n${YELLOW}Starting MIA GPU Miner service...${NC}"
-sudo systemctl start mia-gpu-miner.service
+$SUDO_CMD systemctl start mia-gpu-miner.service
 
 echo -e "\n${GREEN}✓ MIA GPU Miner installation complete!${NC}"
 echo ""
+echo "Installation location: $INSTALL_DIR"
+echo ""
 echo "Service commands:"
-echo "  Check status: sudo systemctl status mia-gpu-miner"
-echo "  View logs:    sudo journalctl -u mia-gpu-miner -f"
-echo "  Stop:         sudo systemctl stop mia-gpu-miner"
-echo "  Start:        sudo systemctl start mia-gpu-miner"
+if [ "$EUID" -eq 0 ]; then
+    echo "  Check status: systemctl status mia-gpu-miner"
+    echo "  View logs:    journalctl -u mia-gpu-miner -f"
+    echo "  Stop:         systemctl stop mia-gpu-miner"
+    echo "  Start:        systemctl start mia-gpu-miner"
+else
+    echo "  Check status: sudo systemctl status mia-gpu-miner"
+    echo "  View logs:    sudo journalctl -u mia-gpu-miner -f"
+    echo "  Stop:         sudo systemctl stop mia-gpu-miner"
+    echo "  Start:        sudo systemctl start mia-gpu-miner"
+fi
 echo ""
 echo "The miner is now running with Mistral 7B on GPU!"
 echo "It will automatically register with the backend and start processing jobs."
