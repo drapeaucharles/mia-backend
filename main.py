@@ -763,7 +763,9 @@ async def submit_miner_result(
         # Update miner stats
         miner = db.query(database.Miner).filter(database.Miner.id == request.miner_id).first()
         if miner:
-            miner.jobs_completed = (miner.jobs_completed or 0) + 1
+            # Update job_count (the actual column name)
+            if hasattr(miner, 'job_count'):
+                miner.job_count = (miner.job_count or 0) + 1
             miner.status = "idle"
             miner.last_active = datetime.utcnow()
             db.commit()
