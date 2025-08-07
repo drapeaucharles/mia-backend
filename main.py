@@ -137,12 +137,8 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        # Try to dispatch directly to miner first
-        dispatched = await dispatch_job_to_miner(job, db)
-        
-        if not dispatched:
-            # Fall back to queue if no miners available
-            redis_queue.push_job(job)
+        # Always push to queue for fair distribution
+        redis_queue.push_job(job)
         
         return ChatResponse(
             job_id=job_id,
@@ -689,17 +685,23 @@ async def list_miners(db=Depends(get_db)):
 @app.get("/get_work")
 async def get_work_for_miner(miner_id: int, wait: bool = False, db=Depends(get_db)):
     """
-    Get work for a specific miner
-    Optional long polling with wait parameter
+    Get next available work from queue (FIFO)
+    Any miner can get any job - first come, first served
     """
     try:
-        # Try to get a job immediately
+        # Update miner last active time
+        miner = db.query(database.Miner).filter(database.Miner.id == miner_id).first()
+        if miner:
+            miner.last_active = datetime.utcnow()
+            db.commit()
+        
+        # Try to get next job from queue
         job = redis_queue.pop_job()
         
-        # If no job and wait requested, poll for up to 30 seconds
+        # Optional long polling
         if not job and wait:
             import asyncio
-            for _ in range(30):  # 30 attempts, 1 second each
+            for _ in range(30):
                 await asyncio.sleep(1)
                 job = redis_queue.pop_job()
                 if job:
@@ -707,11 +709,11 @@ async def get_work_for_miner(miner_id: int, wait: bool = False, db=Depends(get_d
         
         if job:
             # Mark miner as active
-            miner = db.query(database.Miner).filter(database.Miner.id == miner_id).first()
             if miner:
                 miner.status = "active"
-                miner.last_active = datetime.utcnow()
                 db.commit()
+            
+            logger.info(f"Job {job.get('job_id')} assigned to miner {miner_id}")
             
             return {
                 "request_id": job.get("job_id"),
