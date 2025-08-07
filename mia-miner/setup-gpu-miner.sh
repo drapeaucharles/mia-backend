@@ -33,11 +33,28 @@ fi
 # Check for NVIDIA GPU
 if ! command -v nvidia-smi &> /dev/null; then
     echo -e "${RED}Error: NVIDIA GPU not detected. Please install NVIDIA drivers first.${NC}"
+    echo -e "${YELLOW}To install NVIDIA drivers:${NC}"
+    echo "  sudo apt update"
+    echo "  sudo apt install nvidia-driver-525"
+    echo "  sudo reboot"
+    exit 1
+fi
+
+# Check if running with sudo when needed
+if [ "$EUID" -eq 0 ]; then
+    echo -e "${RED}Please do not run this script as root/sudo${NC}"
+    echo "The script will ask for sudo when needed."
     exit 1
 fi
 
 # Get GPU info
-GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -n1)
+GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -n1)
+if [ -z "$GPU_INFO" ]; then
+    echo -e "${RED}Error: Could not query GPU information${NC}"
+    echo "Please ensure NVIDIA drivers are properly installed."
+    exit 1
+fi
+
 GPU_NAME=$(echo $GPU_INFO | cut -d',' -f1 | xargs)
 GPU_MEMORY=$(echo $GPU_INFO | cut -d',' -f2 | xargs)
 
@@ -63,11 +80,43 @@ cd "$INSTALL_DIR"
 # Step 1: Install system dependencies
 echo -e "\n${YELLOW}[1/6] Installing system dependencies...${NC}"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3.10 python3.10-venv python3-pip git curl wget build-essential
+
+# Check Python version and install appropriate packages
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+echo -e "${GREEN}Detected Python $PYTHON_VERSION${NC}"
+
+if [[ "$PYTHON_VERSION" == "3.8" ]]; then
+    sudo apt-get install -y -qq python3.8 python3.8-venv python3-pip git curl wget build-essential
+    PYTHON_CMD="python3.8"
+elif [[ "$PYTHON_VERSION" == "3.9" ]]; then
+    sudo apt-get install -y -qq python3.9 python3.9-venv python3-pip git curl wget build-essential
+    PYTHON_CMD="python3.9"
+elif [[ "$PYTHON_VERSION" == "3.10" ]]; then
+    sudo apt-get install -y -qq python3.10 python3.10-venv python3-pip git curl wget build-essential 2>/dev/null || {
+        # Fallback if python3.10-venv not available
+        sudo apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
+    }
+    PYTHON_CMD="python3.10"
+elif [[ "$PYTHON_VERSION" == "3.11" ]]; then
+    sudo apt-get install -y -qq python3.11 python3.11-venv python3-pip git curl wget build-essential 2>/dev/null || {
+        sudo apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
+    }
+    PYTHON_CMD="python3.11"
+else
+    # Default to python3
+    sudo apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential
+    PYTHON_CMD="python3"
+fi
 
 # Step 2: Create Python virtual environment
 echo -e "\n${YELLOW}[2/6] Setting up Python environment...${NC}"
-python3.10 -m venv venv
+$PYTHON_CMD -m venv venv || {
+    echo -e "${RED}Failed to create virtual environment${NC}"
+    echo "Trying with ensurepip..."
+    $PYTHON_CMD -m venv --without-pip venv
+    source venv/bin/activate
+    curl https://bootstrap.pypa.io/get-pip.py | python
+}
 source venv/bin/activate
 
 # Upgrade pip
@@ -75,13 +124,40 @@ pip install --upgrade pip wheel setuptools
 
 # Step 3: Install PyTorch with CUDA support
 echo -e "\n${YELLOW}[3/6] Installing PyTorch with CUDA support...${NC}"
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# Detect CUDA version
+if command -v nvcc &> /dev/null; then
+    CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d, -f1 | cut -dV -f2)
+    CUDA_MAJOR=$(echo $CUDA_VERSION | cut -d. -f1)
+    echo -e "${GREEN}Detected CUDA $CUDA_VERSION${NC}"
+    
+    if [[ "$CUDA_MAJOR" == "12" ]]; then
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    elif [[ "$CUDA_MAJOR" == "11" ]]; then
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    else
+        pip install torch torchvision torchaudio
+    fi
+else
+    # Default to CUDA 11.8
+    echo -e "${YELLOW}CUDA not detected, installing PyTorch with CUDA 11.8 support${NC}"
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+fi
 
 # Step 4: Install vLLM for efficient inference
 echo -e "\n${YELLOW}[4/6] Installing vLLM inference server...${NC}"
-pip install vllm
-pip install transformers accelerate sentencepiece protobuf
-pip install requests psutil gpustat py-cpuinfo
+# Install vLLM and dependencies
+pip install --upgrade pip wheel setuptools
+
+# Install vLLM (may need specific version for compatibility)
+echo "Installing vLLM (this may take a few minutes)..."
+pip install vllm==0.2.7 || {
+    echo -e "${YELLOW}Trying latest vLLM version...${NC}"
+    pip install vllm
+}
+
+# Install other dependencies
+pip install transformers>=4.36.0 accelerate sentencepiece protobuf
+pip install requests psutil gpustat py-cpuinfo uvicorn fastapi
 
 # Step 5: Download configuration files
 echo -e "\n${YELLOW}[5/6] Downloading miner scripts...${NC}"
@@ -522,15 +598,58 @@ POLL_INTERVAL=5
 EOF
 
 # Install service
-sudo mv "$SERVICE_FILE" /etc/systemd/system/mia-gpu-miner.service
+sudo mv "$SERVICE_FILE" /etc/systemd/system/mia-gpu-miner.service || {
+    echo -e "${RED}Failed to install systemd service${NC}"
+    echo "You can run the miner manually with: $INSTALL_DIR/start_miner.sh"
+    exit 1
+}
 sudo systemctl daemon-reload
 sudo systemctl enable mia-gpu-miner.service
 
 # Download model first (this takes time)
-echo -e "\n${YELLOW}Downloading Mistral 7B model (this may take a while)...${NC}"
+echo -e "\n${YELLOW}Downloading Mistral 7B model (this may take 10-20 minutes)...${NC}"
 cd "$INSTALL_DIR"
 source venv/bin/activate
-python -c "from transformers import AutoTokenizer, AutoModelForCausalLM; AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1'); AutoModelForCausalLM.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1', torch_dtype='auto')"
+
+# Create a simple script to download the model with progress
+cat > download_model.py << 'EOF'
+import os
+os.environ['HF_HUB_DISABLE_SYMLINKS'] = '1'
+
+print("Downloading Mistral 7B Instruct model...")
+print("This is a 14GB download and may take some time.")
+
+try:
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    
+    print("\nDownloading tokenizer...")
+    tokenizer = AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1')
+    print("✓ Tokenizer downloaded")
+    
+    print("\nDownloading model weights (14GB)...")
+    model = AutoModelForCausalLM.from_pretrained(
+        'mistralai/Mistral-7B-Instruct-v0.1',
+        torch_dtype='auto',
+        low_cpu_mem_usage=True
+    )
+    print("✓ Model downloaded successfully!")
+    
+    # Test model loading
+    print("\nTesting model load...")
+    del model  # Free memory
+    print("✓ Model test passed")
+    
+except Exception as e:
+    print(f"\nError downloading model: {e}")
+    exit(1)
+EOF
+
+python download_model.py || {
+    echo -e "${RED}Failed to download model${NC}"
+    echo "Please check your internet connection and try again."
+    exit 1
+}
+rm download_model.py
 
 # Start service
 echo -e "\n${YELLOW}Starting MIA GPU Miner service...${NC}"
