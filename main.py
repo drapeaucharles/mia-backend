@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from datetime import datetime
 from typing import Optional, List
 import uuid
@@ -633,6 +633,363 @@ async def list_miners(db=Depends(get_db)):
         return miners
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/job/{job_id}/result")
+async def get_job_result(job_id: str, db=Depends(get_db)):
+    """
+    Get the result of a chat job
+    """
+    try:
+        # Check Redis for result
+        result = redis_queue.get_result(job_id)
+        if result:
+            return {"status": "completed", "result": result}
+        
+        # Check if job exists
+        job = redis_queue.get_job(job_id)
+        if job:
+            return {"status": "processing", "result": None}
+        
+        return {"status": "not_found", "result": None}
+        
+    except Exception as e:
+        logger.error(f"Error getting job result: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/chat-ui", response_class=HTMLResponse)
+async def chat_interface():
+    """
+    Serve a simple chat interface for testing the MIA network
+    """
+    return HTMLResponse(content="""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MIA Network Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: #2563eb;
+            color: white;
+            padding: 20px;
+            border-radius: 12px 12px 0 0;
+            text-align: center;
+        }
+        .header h1 { font-size: 24px; margin-bottom: 5px; }
+        .header p { opacity: 0.9; font-size: 14px; }
+        .miners-status {
+            padding: 10px 20px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 14px;
+            color: #6b7280;
+        }
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .message {
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background: #2563eb;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        .ai-message {
+            background: #f3f4f6;
+            color: #1f2937;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+        .typing {
+            display: none;
+            align-self: flex-start;
+            padding: 12px 16px;
+            background: #f3f4f6;
+            border-radius: 12px;
+            border-bottom-left-radius: 4px;
+        }
+        .typing span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #9ca3af;
+            margin: 0 2px;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .typing span:nth-child(1) { animation-delay: -0.32s; }
+        .typing span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        .input-container {
+            padding: 20px;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            gap: 10px;
+        }
+        #messageInput {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 24px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        #messageInput:focus {
+            border-color: #2563eb;
+        }
+        #sendButton {
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        #sendButton:hover:not(:disabled) {
+            background: #1d4ed8;
+        }
+        #sendButton:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .error {
+            background: #fee;
+            color: #dc2626;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin: 10px 20px;
+            font-size: 14px;
+        }
+        .status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status.online { background: #10b981; }
+        .status.offline { background: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 MIA Network Chat</h1>
+            <p>Chat with AI models running on the decentralized GPU network</p>
+        </div>
+        <div class="miners-status" id="minersStatus">
+            <span class="status offline"></span>
+            Checking network status...
+        </div>
+        <div class="chat-container" id="chatContainer">
+            <div class="ai-message message">
+                👋 Hello! I'm connected to the MIA GPU network. Ask me anything!
+            </div>
+        </div>
+        <div class="typing" id="typing">
+            <span></span><span></span><span></span>
+        </div>
+        <div class="input-container">
+            <input 
+                type="text" 
+                id="messageInput" 
+                placeholder="Type a message..." 
+                autofocus
+            />
+            <button id="sendButton">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const typing = document.getElementById('typing');
+        const minersStatus = document.getElementById('minersStatus');
+        
+        let sessionId = localStorage.getItem('mia-session-id') || generateId();
+        localStorage.setItem('mia-session-id', sessionId);
+        
+        function generateId() {
+            return 'xxxx-xxxx-xxxx'.replace(/[x]/g, () => 
+                (Math.random() * 16 | 0).toString(16)
+            );
+        }
+        
+        // Check miners status
+        async function checkMiners() {
+            try {
+                const response = await fetch('/miners');
+                const miners = await response.json();
+                const activeMiners = miners.filter(m => 
+                    m.status === 'active' || m.status === 'idle'
+                ).length;
+                
+                if (activeMiners > 0) {
+                    minersStatus.innerHTML = `
+                        <span class="status online"></span>
+                        ${activeMiners} miner${activeMiners > 1 ? 's' : ''} online
+                    `;
+                } else {
+                    minersStatus.innerHTML = `
+                        <span class="status offline"></span>
+                        No miners available
+                    `;
+                }
+            } catch (error) {
+                console.error('Failed to check miners:', error);
+            }
+        }
+        
+        checkMiners();
+        setInterval(checkMiners, 30000); // Check every 30 seconds
+        
+        function addMessage(text, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'ai-message'}`;
+            messageDiv.textContent = text;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        function showTyping() {
+            typing.style.display = 'block';
+            chatContainer.appendChild(typing);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        function hideTyping() {
+            typing.style.display = 'none';
+        }
+        
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            chatContainer.appendChild(errorDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            setTimeout(() => errorDiv.remove(), 5000);
+        }
+        
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+            
+            addMessage(message, true);
+            messageInput.value = '';
+            sendButton.disabled = true;
+            showTyping();
+            
+            try {
+                // Send to chat endpoint
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: message,
+                        session_id: sessionId,
+                        business_id: 'web-ui'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Poll for result
+                    const result = await pollForResult(data.job_id);
+                    hideTyping();
+                    
+                    if (result) {
+                        addMessage(result);
+                    } else {
+                        showError('Request timed out. No miners available or network is busy.');
+                    }
+                } else {
+                    hideTyping();
+                    showError(data.detail || 'Failed to send message');
+                }
+            } catch (error) {
+                hideTyping();
+                showError('Network error. Please try again.');
+                console.error('Error:', error);
+            } finally {
+                sendButton.disabled = false;
+                messageInput.focus();
+            }
+        }
+        
+        async function pollForResult(jobId, maxAttempts = 30) {
+            for (let i = 0; i < maxAttempts; i++) {
+                try {
+                    const response = await fetch(`/job/${jobId}/result`);
+                    const data = await response.json();
+                    
+                    if (response.ok && data.result) {
+                        return data.result;
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            return null;
+        }
+        
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
+""")
 
 if __name__ == "__main__":
     import uvicorn
