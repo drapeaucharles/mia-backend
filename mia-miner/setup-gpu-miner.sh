@@ -131,23 +131,49 @@ pip install --upgrade pip wheel setuptools
 
 # Step 3: Install PyTorch with CUDA support
 echo -e "\n${YELLOW}[3/6] Installing PyTorch with CUDA support...${NC}"
+
+# Clear pip cache to avoid hash mismatches
+pip cache purge 2>/dev/null || true
+
 # Detect CUDA version
 if command -v nvcc &> /dev/null; then
     CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d, -f1 | cut -dV -f2)
     CUDA_MAJOR=$(echo $CUDA_VERSION | cut -d. -f1)
     echo -e "${GREEN}Detected CUDA $CUDA_VERSION${NC}"
     
-    if [[ "$CUDA_MAJOR" == "12" ]]; then
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-    elif [[ "$CUDA_MAJOR" == "11" ]]; then
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-    else
-        pip install torch torchvision torchaudio
+    # Install PyTorch with retries and no-cache
+    MAX_RETRIES=3
+    RETRY_COUNT=0
+    
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        if [[ "$CUDA_MAJOR" == "12" ]]; then
+            pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 && break
+        elif [[ "$CUDA_MAJOR" == "11" ]]; then
+            pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 && break
+        else
+            pip install --no-cache-dir torch torchvision torchaudio && break
+        fi
+        
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            echo -e "${YELLOW}Retry $RETRY_COUNT/$MAX_RETRIES...${NC}"
+            sleep 5
+        fi
+    done
+    
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+        echo -e "${RED}Failed to install PyTorch after $MAX_RETRIES attempts${NC}"
+        echo "You can try manually with:"
+        echo "pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121"
+        exit 1
     fi
 else
     # Default to CUDA 11.8
     echo -e "${YELLOW}CUDA not detected, installing PyTorch with CUDA 11.8 support${NC}"
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 || {
+        echo -e "${RED}Failed to install PyTorch${NC}"
+        exit 1
+    }
 fi
 
 # Step 4: Install vLLM for efficient inference
@@ -157,14 +183,20 @@ pip install --upgrade pip wheel setuptools
 
 # Install vLLM (may need specific version for compatibility)
 echo "Installing vLLM (this may take a few minutes)..."
-pip install vllm==0.2.7 || {
-    echo -e "${YELLOW}Trying latest vLLM version...${NC}"
-    pip install vllm
-}
 
-# Install other dependencies
-pip install transformers>=4.36.0 accelerate sentencepiece protobuf
-pip install requests psutil gpustat py-cpuinfo uvicorn fastapi
+# First install dependencies to avoid conflicts
+pip install --no-cache-dir numpy scipy
+pip install --no-cache-dir transformers>=4.36.0 accelerate sentencepiece protobuf
+pip install --no-cache-dir requests psutil gpustat py-cpuinfo uvicorn fastapi
+
+# Then install vLLM
+pip install --no-cache-dir vllm==0.2.7 || {
+    echo -e "${YELLOW}Trying latest vLLM version...${NC}"
+    pip install --no-cache-dir vllm || {
+        echo -e "${YELLOW}Installing vLLM from source...${NC}"
+        pip install --no-cache-dir git+https://github.com/vllm-project/vllm.git
+    }
+}
 
 # Step 5: Download configuration files
 echo -e "\n${YELLOW}[5/6] Downloading miner scripts...${NC}"
