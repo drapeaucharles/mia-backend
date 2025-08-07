@@ -199,6 +199,7 @@ import os
 import time
 import requests
 import logging
+import socket
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -228,7 +229,9 @@ class MIAMiner:
             ip = requests.get('https://api.ipify.org').text
             logger.info(f"Public IP: {ip}")
             
+            hostname = socket.gethostname()
             data = {
+                "name": f"GPU-{hostname}-{ip.split('.')[-1]}",
                 "wallet_address": os.getenv("WALLET_ADDRESS", "0x" + "0"*40),
                 "endpoint_url": f"http://{ip}:8000",
                 "model": "Mistral-7B-OpenOrca-GPTQ",
