@@ -641,7 +641,7 @@ async def get_work_for_miner(miner_id: int, db=Depends(get_db)):
     """
     try:
         # Get next job from Redis queue
-        job = redis_queue.get_next_job()
+        job = redis_queue.pop_job()
         
         if job:
             # Mark miner as active
@@ -665,13 +665,16 @@ async def get_work_for_miner(miner_id: int, db=Depends(get_db)):
         logger.error(f"Error getting work: {e}")
         return {}
 
+from pydantic import BaseModel
+
+class SubmitResultRequest(BaseModel):
+    miner_id: int
+    request_id: str
+    result: dict
+    
 @app.post("/submit_result")
 async def submit_miner_result(
-    miner_id: int,
-    request_id: str,
-    result: str,
-    tokens_generated: int = 0,
-    processing_time: float = 0,
+    request: SubmitResultRequest,
     db=Depends(get_db)
 ):
     """
@@ -679,16 +682,22 @@ async def submit_miner_result(
     """
     try:
         # Store result in Redis
-        redis_queue.set_result(request_id, {
-            "response": result,
-            "tokens_generated": tokens_generated,
-            "processing_time": processing_time,
-            "miner_id": miner_id,
+        result_data = request.result
+        if isinstance(result_data, dict):
+            result_text = result_data.get("response", result_data.get("text", str(result_data)))
+        else:
+            result_text = str(result_data)
+            
+        redis_queue.store_result(request.request_id, {
+            "response": result_text,
+            "tokens_generated": result_data.get("tokens_generated", 0) if isinstance(result_data, dict) else 0,
+            "processing_time": result_data.get("processing_time", 0) if isinstance(result_data, dict) else 0,
+            "miner_id": request.miner_id,
             "timestamp": datetime.utcnow().isoformat()
         })
         
         # Update miner stats
-        miner = db.query(database.Miner).filter(database.Miner.id == miner_id).first()
+        miner = db.query(database.Miner).filter(database.Miner.id == request.miner_id).first()
         if miner:
             miner.jobs_completed = (miner.jobs_completed or 0) + 1
             miner.status = "idle"
@@ -712,9 +721,9 @@ async def get_job_result(job_id: str, db=Depends(get_db)):
         if result:
             return {"status": "completed", "result": result}
         
-        # Check if job exists
-        job = redis_queue.get_job(job_id)
-        if job:
+        # Check if job is still in queue
+        queue_length = redis_queue.get_queue_length()
+        if queue_length > 0:
             return {"status": "processing", "result": None}
         
         return {"status": "not_found", "result": None}
