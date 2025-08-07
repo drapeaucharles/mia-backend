@@ -238,7 +238,7 @@ llm = None
 @app.on_event("startup")
 async def startup_event():
     global llm
-    model_name = "mistralai/Mistral-7B-Instruct-v0.1"
+    model_name = "mistralai/Mistral-7B-Instruct-v0.2"
     
     print(f"Loading {model_name}...")
     print(f"CUDA available: {torch.cuda.is_available()}")
@@ -256,7 +256,7 @@ async def startup_event():
 
 @app.get("/")
 async def root():
-    return {"status": "ready", "model": "mistralai/Mistral-7B-Instruct-v0.1"}
+    return {"status": "ready", "model": "mistralai/Mistral-7B-Instruct-v0.2"}
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest):
@@ -283,7 +283,7 @@ async def generate(request: GenerateRequest):
     return GenerateResponse(
         text=generated_text,
         tokens_generated=tokens_generated,
-        model="mistralai/Mistral-7B-Instruct-v0.1"
+        model="mistralai/Mistral-7B-Instruct-v0.2"
     )
 
 if __name__ == "__main__":
@@ -662,12 +662,12 @@ try:
     from transformers import AutoTokenizer, AutoModelForCausalLM
     
     print("\nDownloading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1')
+    tokenizer = AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.2')
     print("✓ Tokenizer downloaded")
     
     print("\nDownloading model weights (14GB)...")
     model = AutoModelForCausalLM.from_pretrained(
-        'mistralai/Mistral-7B-Instruct-v0.1',
+        'mistralai/Mistral-7B-Instruct-v0.2',
         torch_dtype='auto',
         low_cpu_mem_usage=True
     )

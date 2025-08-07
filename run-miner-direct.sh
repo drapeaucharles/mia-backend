@@ -27,14 +27,14 @@ echo -e "${YELLOW}Checking for Mistral 7B model...${NC}"
 python -c "
 try:
     from transformers import AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1', local_files_only=True)
+    tokenizer = AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.2', local_files_only=True)
     print('✓ Model already downloaded')
 except:
     print('Model not found, downloading now...')
     print('This is a 14GB download and will take 10-20 minutes.')
     from transformers import AutoTokenizer, AutoModelForCausalLM
-    AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1')
-    AutoModelForCausalLM.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1', torch_dtype='auto', low_cpu_mem_usage=True)
+    AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.2')
+    AutoModelForCausalLM.from_pretrained('mistralai/Mistral-7B-Instruct-v0.2', torch_dtype='auto', low_cpu_mem_usage=True)
     print('✓ Model downloaded successfully!')
 "
 
