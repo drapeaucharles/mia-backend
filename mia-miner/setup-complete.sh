@@ -102,13 +102,15 @@ pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https
 
 # Install other dependencies
 echo -e "\n${YELLOW}[7/10] Installing AI dependencies...${NC}"
+# Install vllm first with its specific dependencies
+pip install vllm==0.2.7
+
+# Then install other packages (vllm requires pydantic 1.10.x)
 pip install \
     transformers==4.36.2 \
-    vllm==0.2.7 \
     fastapi==0.109.0 \
     uvicorn==0.27.0 \
     requests==2.31.0 \
-    pydantic==2.5.3 \
     huggingface-hub==0.20.3 \
     accelerate==0.26.1 \
     sentencepiece==0.1.99 \
