@@ -59,6 +59,54 @@ async def root():
     """Health check endpoint"""
     return {"status": "healthy", "service": "MIA Backend"}
 
+async def dispatch_job_to_miner(job: dict, db):
+    """
+    Dispatch a job directly to an available miner
+    """
+    try:
+        # Find an idle miner
+        idle_miner = db.query(database.Miner).filter(
+            database.Miner.status.in_(["idle", "active"]),
+            database.Miner.last_active >= datetime.utcnow() - timedelta(minutes=5)
+        ).order_by(database.Miner.last_active.desc()).first()
+        
+        if not idle_miner:
+            logger.warning("No idle miners available, job queued")
+            return False
+        
+        # Try to send job directly to miner
+        try:
+            miner_url = idle_miner.endpoint_url.rstrip('/') + "/receive_job"
+            
+            # Mark miner as active
+            idle_miner.status = "active"
+            db.commit()
+            
+            response = requests.post(
+                miner_url,
+                json=job,
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"Job {job['job_id']} dispatched to miner {idle_miner.id}")
+                return True
+            else:
+                logger.error(f"Miner {idle_miner.id} rejected job: {response.status_code}")
+                idle_miner.status = "idle"
+                db.commit()
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to reach miner {idle_miner.id}: {e}")
+            idle_miner.status = "offline"
+            db.commit()
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error dispatching job: {e}")
+        return False
+
 @app.post("/chat", response_model=ChatResponse)
 async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
     """
@@ -89,8 +137,12 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        # Push job to Redis queue
-        redis_queue.push_job(job)
+        # Try to dispatch directly to miner first
+        dispatched = await dispatch_job_to_miner(job, db)
+        
+        if not dispatched:
+            # Fall back to queue if no miners available
+            redis_queue.push_job(job)
         
         return ChatResponse(
             job_id=job_id,
