@@ -634,6 +634,73 @@ async def list_miners(db=Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/get_work")
+async def get_work_for_miner(miner_id: int, db=Depends(get_db)):
+    """
+    Get work for a specific miner
+    """
+    try:
+        # Get next job from Redis queue
+        job = redis_queue.get_next_job()
+        
+        if job:
+            # Mark miner as active
+            miner = db.query(database.Miner).filter(database.Miner.id == miner_id).first()
+            if miner:
+                miner.status = "active"
+                miner.last_active = datetime.utcnow()
+                db.commit()
+            
+            return {
+                "request_id": job.get("job_id"),
+                "prompt": job.get("prompt"),
+                "max_tokens": job.get("max_tokens", 500),
+                "temperature": job.get("temperature", 0.7)
+            }
+        
+        # No work available
+        return {}
+        
+    except Exception as e:
+        logger.error(f"Error getting work: {e}")
+        return {}
+
+@app.post("/submit_result")
+async def submit_miner_result(
+    miner_id: int,
+    request_id: str,
+    result: str,
+    tokens_generated: int = 0,
+    processing_time: float = 0,
+    db=Depends(get_db)
+):
+    """
+    Submit result from miner
+    """
+    try:
+        # Store result in Redis
+        redis_queue.set_result(request_id, {
+            "response": result,
+            "tokens_generated": tokens_generated,
+            "processing_time": processing_time,
+            "miner_id": miner_id,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+        # Update miner stats
+        miner = db.query(database.Miner).filter(database.Miner.id == miner_id).first()
+        if miner:
+            miner.jobs_completed = (miner.jobs_completed or 0) + 1
+            miner.status = "idle"
+            miner.last_active = datetime.utcnow()
+            db.commit()
+        
+        return {"status": "success"}
+        
+    except Exception as e:
+        logger.error(f"Error submitting result: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/job/{job_id}/result")
 async def get_job_result(job_id: str, db=Depends(get_db)):
     """
@@ -931,7 +998,7 @@ async def chat_interface():
                     body: JSON.stringify({
                         message: message,
                         session_id: sessionId,
-                        business_id: 'web-ui'
+                        business_id: 1
                     })
                 });
                 
@@ -968,7 +1035,16 @@ async def chat_interface():
                     const data = await response.json();
                     
                     if (response.ok && data.result) {
-                        return data.result;
+                        // Handle different response formats
+                        if (typeof data.result === 'string') {
+                            return data.result;
+                        } else if (data.result.response) {
+                            return data.result.response;
+                        } else if (data.result.text) {
+                            return data.result.text;
+                        } else {
+                            return JSON.stringify(data.result);
+                        }
                     }
                 } catch (error) {
                     console.error('Polling error:', error);
