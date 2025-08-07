@@ -138,16 +138,31 @@ llm = None
 @app.on_event("startup")
 async def startup():
     global llm
-    print(f"Loading {MODEL}...")
-    # GPTQ quantized model uses less disk space
-    llm = LLM(
-        model=MODEL,
-        quantization="gptq",
-        dtype="float16",
-        gpu_memory_utilization=0.9,
-        download_dir="/opt/mia-gpu-miner/models"
-    )
-    print("Model loaded!")
+    print(f"[vLLM] Starting up...")
+    print(f"[vLLM] CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"[vLLM] GPU: {torch.cuda.get_device_name(0)}")
+        print(f"[vLLM] GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+    
+    print(f"[vLLM] Loading model: {MODEL}")
+    print(f"[vLLM] This is a 4GB GPTQ quantized model")
+    print(f"[vLLM] First time download may take 5-10 minutes...")
+    
+    try:
+        # GPTQ quantized model uses less disk space
+        llm = LLM(
+            model=MODEL,
+            quantization="gptq",
+            dtype="float16",
+            gpu_memory_utilization=0.9,
+            download_dir="/opt/mia-gpu-miner/models",
+            trust_remote_code=True
+        )
+        print(f"[vLLM] ✓ Model loaded!")
+        print(f"[vLLM] Ready to serve requests on port 8000")
+    except Exception as e:
+        print(f"[vLLM] ❌ Failed to load model: {e}")
+        raise
 
 @app.get("/health")
 async def health():
@@ -208,18 +223,33 @@ class MIAMiner:
     def register(self):
         try:
             ip = requests.get('https://api.ipify.org').text
+            logger.info(f"Public IP: {ip}")
+            
             data = {
                 "wallet_address": os.getenv("WALLET_ADDRESS", "0x" + "0"*40),
                 "endpoint_url": f"http://{ip}:8000",
                 "model": "Mistral-7B-OpenOrca-GPTQ",
                 "max_tokens": 4096
             }
-            r = self.session.post(f"{MIA_URL}/miner/register", json=data)
-            self.miner_id = r.json()["miner_id"]
-            logger.info(f"Registered: {self.miner_id}")
+            logger.info(f"Registering with: {MIA_URL}/miner/register")
+            
+            r = self.session.post(f"{MIA_URL}/miner/register", json=data, timeout=30)
+            logger.info(f"Registration response: {r.status_code}")
+            
+            if r.status_code != 200:
+                logger.error(f"Registration failed with status {r.status_code}: {r.text}")
+                return False
+                
+            response_data = r.json()
+            if "miner_id" not in response_data:
+                logger.error(f"Invalid response format: {response_data}")
+                return False
+                
+            self.miner_id = response_data["miner_id"]
+            logger.info(f"✓ Registered successfully! Miner ID: {self.miner_id}")
             return True
         except Exception as e:
-            logger.error(f"Register failed: {e}")
+            logger.error(f"Register failed with exception: {e}")
             return False
     
     def run(self):
@@ -262,16 +292,67 @@ if __name__ == "__main__":
     MIAMiner().run()
 EOF
 
-# Start script
+# Start script with logging
 cat > "$INSTALL_DIR/start.sh" << 'EOF'
 #!/bin/bash
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
 cd /opt/mia-gpu-miner
 source venv/bin/activate
+
+echo -e "${YELLOW}Starting MIA GPU Miner...${NC}"
+echo "=============================="
+
+# Kill existing processes
+echo -e "\n${YELLOW}[1/4] Stopping any existing processes...${NC}"
 pkill -f vllm_server.py || true
 pkill -f gpu_miner.py || true
+sleep 2
+
+# Start vLLM
+echo -e "\n${YELLOW}[2/4] Starting vLLM server...${NC}"
+echo "This may take 5-10 minutes on first run to download the model (4GB)"
+echo "You can monitor progress in another terminal with:"
+echo "  tail -f /opt/mia-gpu-miner/vllm.log"
+echo ""
+
 python vllm_server.py > vllm.log 2>&1 &
-sleep 30
-python gpu_miner.py
+VLLM_PID=$!
+echo "vLLM server started (PID: $VLLM_PID)"
+
+# Monitor startup
+echo -e "\n${YELLOW}[3/4] Waiting for model to load...${NC}"
+echo -n "Progress: "
+for i in {1..60}; do
+    if grep -q "Model loaded!" vllm.log 2>/dev/null; then
+        echo -e "\n${GREEN}✓ Model loaded successfully!${NC}"
+        break
+    elif grep -q "Downloading" vllm.log 2>/dev/null; then
+        echo -n "📥"
+    else
+        echo -n "."
+    fi
+    sleep 5
+done
+
+# Check if vLLM is still running
+if ! kill -0 $VLLM_PID 2>/dev/null; then
+    echo -e "\n${RED}❌ vLLM server crashed! Check vllm.log for errors${NC}"
+    tail -20 vllm.log
+    exit 1
+fi
+
+# Start miner
+echo -e "\n${YELLOW}[4/4] Starting GPU miner...${NC}"
+echo "Miner logs will appear below:"
+echo "==============================="
+python gpu_miner.py 2>&1 | while IFS= read -r line; do
+    echo "[$(date '+%H:%M:%S')] $line"
+done
 EOF
 chmod +x "$INSTALL_DIR/start.sh"
 
