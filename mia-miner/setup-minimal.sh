@@ -203,7 +203,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MIA_URL = os.getenv("MIA_BACKEND_URL", "https://mia-backend.up.railway.app")
+MIA_URL = os.getenv("MIA_BACKEND_URL", "https://mia-backend-production.up.railway.app")
 VLLM_URL = "http://localhost:8000"
 
 class MIAMiner:
