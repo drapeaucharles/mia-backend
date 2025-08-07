@@ -147,20 +147,33 @@ class FallbackManager:
                 "timestamp": datetime.utcnow().isoformat() + "Z"
             }
             
-            response = requests.post(
-                f"{self.api_url}/report_golem_job",
-                json=payload,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                logger.debug(f"Fallback reported. Total earnings: {data.get('total_glm', 0):.4f}")
-            else:
-                logger.debug(f"Failed to report fallback: {response.status_code}")
+            # Try to report with retries
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = requests.post(
+                        f"{self.api_url}/report_golem_job",
+                        json=payload,
+                        timeout=10
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        logger.debug(f"Fallback reported. Total earnings: {data.get('total_glm', 0):.4f}")
+                        return
+                    else:
+                        logger.debug(f"Failed to report fallback: {response.status_code}")
+                    break
+                except requests.exceptions.RequestException:
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                    else:
+                        logger.debug("Could not report fallback job - will retry later")
+                except Exception:
+                    break
                 
         except Exception as e:
-            logger.debug(f"Error reporting fallback: {e}")
+            logger.debug(f"Error reporting fallback: {type(e).__name__}")
     
     def cleanup(self):
         """Clean up resources"""

@@ -34,38 +34,102 @@ class MIAMiner:
         self.miner_id = None
         self.auth_key = None
         
+        # Network settings
+        self.request_timeout = 10
+        self.network_retry_delay = 10
+        
         # Initialize fallback manager
         self.fallback_manager = FallbackManager(self.miner_name, self.api_url)
         self.fallback_idle_threshold = 10  # Start fallback after 10 seconds of no jobs
         self.last_job_time = time.time()
         self.fallback_active = False
         
-        logger.info(f"MIA Miner initialized")
-        logger.info(f"API URL: {self.api_url}")
-        logger.info(f"Miner Name: {self.miner_name}")
-        logger.info(f"Poll Interval: {self.poll_interval}s")
+        logger.info("=" * 50)
+        logger.info("[MIA] Miner initialized")
+        logger.info(f"[MIA] API URL: {self.api_url}")
+        logger.info(f"[MIA] Miner Name: {self.miner_name}")
+        logger.info(f"[MIA] Poll Interval: {self.poll_interval}s")
+        logger.info("=" * 50)
         
-        # Register miner on startup
-        self.register_miner()
+        # Register miner on startup (with retry)
+        self.register_miner_with_retry()
     
-    def register_miner(self):
+    def register_miner_with_retry(self):
+        """Register miner with retry logic"""
+        max_retries = 5
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            if self.register_miner():
+                return
+            
+            retry_count += 1
+            if retry_count < max_retries:
+                logger.info(f"[MIA] Registration retry {retry_count}/{max_retries} in {self.network_retry_delay} seconds...")
+                time.sleep(self.network_retry_delay)
+        
+        logger.warning("[MIA] Could not register miner after retries. Continuing anyway...")
+    
+    def safe_request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
+        """Make HTTP request with retry logic and clean error handling"""
+        kwargs.setdefault('timeout', self.request_timeout)
+        
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                response = requests.request(method, url, **kwargs)
+                return response
+            except requests.exceptions.ConnectionError:
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.info(f"[MIA] Connection failed. Retry {retry_count}/{max_retries} in {self.network_retry_delay} seconds...")
+                    time.sleep(self.network_retry_delay)
+                else:
+                    logger.warning("[MIA] Backend temporarily unavailable")
+                    return None
+            except requests.exceptions.Timeout:
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.info(f"[MIA] Request timed out. Retry {retry_count}/{max_retries}...")
+                    time.sleep(2)
+                else:
+                    logger.warning("[MIA] Request timed out")
+                    return None
+            except Exception as e:
+                logger.warning(f"[MIA] Request error: {type(e).__name__}")
+                return None
+        
+        return None
+    
+    def register_miner(self) -> bool:
         """Register this miner with the backend"""
         try:
             response = requests.post(
                 f"{self.api_url}/register_miner",
                 json={"name": self.miner_name},
-                timeout=10
+                timeout=self.request_timeout
             )
             
             if response.status_code == 200:
                 data = response.json()
                 self.miner_id = data.get('miner_id')
                 self.auth_key = data.get('auth_key')
-                logger.info(f"Miner registered successfully. ID: {self.miner_id}")
+                logger.info(f"[MIA] Miner registered successfully. ID: {self.miner_id}")
+                return True
             else:
-                logger.error(f"Failed to register miner: {response.status_code} - {response.text}")
+                logger.warning(f"[MIA] Registration failed: {response.status_code}")
+                return False
+        except requests.exceptions.ConnectionError:
+            logger.warning("[MIA] Backend temporarily unavailable. Will retry...")
+            return False
+        except requests.exceptions.Timeout:
+            logger.warning("[MIA] Request timed out. Will retry...")
+            return False
         except Exception as e:
-            logger.error(f"Error registering miner: {e}")
+            logger.warning(f"[MIA] Registration error: {type(e).__name__}")
+            return False
     
     def simulate_inference(self, prompt: str, max_tokens: int = 500) -> Dict[str, Any]:
         """
@@ -104,34 +168,34 @@ class MIAMiner:
         context = job.get('context', '')
         session_id = job.get('session_id')
         
-        logger.info(f"Processing MIA job {job_id}")
+        logger.info(f"[MIA] Processing job {job_id}")
         
         try:
             # Simulate inference
             full_prompt = f"{context}\n{prompt}" if context else prompt
             result = self.simulate_inference(full_prompt)
             
-            # Submit result
-            response = requests.post(
+            # Submit result with retry
+            response = self.safe_request(
+                'POST',
                 f"{self.api_url}/job/result",
                 json={
                     "job_id": job_id,
                     "session_id": session_id,
                     "output": result["output"],
                     "miner_id": self.miner_id
-                },
-                timeout=10
+                }
             )
             
-            if response.status_code == 200:
-                logger.info(f"MIA job {job_id} completed successfully. Tokens: {result['output_tokens']}")
+            if response and response.status_code == 200:
+                logger.info(f"[MIA] Job {job_id} completed. Tokens: {result['output_tokens']}")
                 return True
             else:
-                logger.error(f"Failed to submit MIA job result: {response.status_code} - {response.text}")
+                logger.warning(f"[MIA] Could not submit job result")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error processing MIA job {job_id}: {e}")
+            logger.warning(f"[MIA] Error processing job: {type(e).__name__}")
             return False
     
     def process_idle_job(self, job: Dict[str, Any]) -> bool:
@@ -140,7 +204,7 @@ class MIAMiner:
         prompt = job.get('prompt', '')
         max_tokens = job.get('max_tokens', 500)
         
-        logger.info(f"Processing idle job {job_id}")
+        logger.info(f"[MIA] Processing idle job {job_id}")
         
         try:
             # Simulate inference
@@ -150,8 +214,9 @@ class MIAMiner:
             tokens_in_thousands = result["output_tokens"] / 1000
             revenue_usd = round(tokens_in_thousands * 0.001, 6)  # $0.001 per 1K tokens
             
-            # Submit result
-            response = requests.post(
+            # Submit result with retry
+            response = self.safe_request(
+                'POST',
                 f"{self.api_url}/idle-job/result",
                 json={
                     "job_id": job_id,
@@ -159,40 +224,39 @@ class MIAMiner:
                     "output_tokens": result["output_tokens"],
                     "usd_earned": revenue_usd,
                     "runpod_job_id": f"sim-{job_id}-{int(time.time())}"
-                },
-                timeout=10
+                }
             )
             
-            if response.status_code == 200:
-                logger.info(f"Idle job {job_id} completed. Tokens: {result['output_tokens']}, Revenue: ${revenue_usd}")
+            if response and response.status_code == 200:
+                logger.info(f"[MIA] Idle job {job_id} completed. Tokens: {result['output_tokens']}, Revenue: ${revenue_usd}")
                 return True
             else:
-                logger.error(f"Failed to submit idle job result: {response.status_code} - {response.text}")
+                logger.warning(f"[MIA] Could not submit idle job result")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error processing idle job {job_id}: {e}")
+            logger.warning(f"[MIA] Error processing idle job: {type(e).__name__}")
             return False
     
     def poll_for_jobs(self):
         """Main polling loop"""
-        logger.info("Starting job polling loop...")
+        logger.info("[MIA] Starting job polling...")
         consecutive_errors = 0
         
         while True:
             try:
                 # First, try to get a MIA job
-                response = requests.get(
+                response = self.safe_request(
+                    'GET',
                     f"{self.api_url}/job/next",
-                    params={"miner_id": self.miner_id} if self.miner_id else {},
-                    timeout=10
+                    params={"miner_id": self.miner_id} if self.miner_id else {}
                 )
                 
-                if response.status_code == 200:
+                if response and response.status_code == 200:
+                    consecutive_errors = 0
                     job = response.json()
                     
                     if job.get('job_id'):
-                        consecutive_errors = 0
                         self.last_job_time = time.time()
                         
                         # Stop fallback if running
@@ -204,16 +268,15 @@ class MIAMiner:
                         continue  # Skip sleep to process next job quickly
                     else:
                         # No MIA jobs, try idle jobs
-                        idle_response = requests.get(
-                            f"{self.api_url}/idle-job/next",
-                            timeout=10
+                        idle_response = self.safe_request(
+                            'GET',
+                            f"{self.api_url}/idle-job/next"
                         )
                         
-                        if idle_response.status_code == 200:
+                        if idle_response and idle_response.status_code == 200:
                             idle_job = idle_response.json()
                             
                             if idle_job.get('job_id'):
-                                consecutive_errors = 0
                                 self.last_job_time = time.time()
                                 
                                 # Stop fallback if running
@@ -230,31 +293,27 @@ class MIAMiner:
                                 if time_since_last_job > self.fallback_idle_threshold and not self.fallback_active:
                                     self.fallback_manager.start_fallback()
                                     self.fallback_active = True
-                                
-                                logger.debug("No jobs available")
-                else:
+                elif response is None:
+                    # Network error - continue with fallback
                     consecutive_errors += 1
-                    logger.warning(f"Failed to poll for jobs: {response.status_code}")
+                    time_since_last_job = time.time() - self.last_job_time
+                    
+                    if time_since_last_job > self.fallback_idle_threshold and not self.fallback_active:
+                        self.fallback_manager.start_fallback()
+                        self.fallback_active = True
+                    
+                    # Don't spam logs during network issues
+                    if consecutive_errors % 10 == 1:
+                        logger.info("[MIA] Waiting for backend connection...")
                 
                 # Sleep before next poll
                 time.sleep(self.poll_interval)
-                
-                # Exponential backoff on errors
-                if consecutive_errors > 5:
-                    sleep_time = min(60, self.poll_interval * (2 ** (consecutive_errors - 5)))
-                    logger.warning(f"Multiple errors detected, backing off for {sleep_time}s")
-                    time.sleep(sleep_time)
                     
-            except requests.exceptions.RequestException as e:
-                consecutive_errors += 1
-                logger.error(f"Network error polling for jobs: {e}")
-                time.sleep(self.poll_interval * 2)
             except KeyboardInterrupt:
-                logger.info("Miner shutdown requested")
+                logger.info("[MIA] Shutdown requested")
                 break
             except Exception as e:
-                consecutive_errors += 1
-                logger.error(f"Unexpected error: {e}")
+                logger.warning(f"[MIA] Polling error: {type(e).__name__}")
                 time.sleep(self.poll_interval)
         
         # Cleanup fallback on exit
@@ -262,7 +321,7 @@ class MIAMiner:
             self.fallback_manager.stop_fallback()
         
         self.fallback_manager.cleanup()
-        logger.info("Miner stopped")
+        logger.info("[MIA] Miner stopped")
 
 def check_gpu():
     """Check if GPU is available (basic check)"""
@@ -271,13 +330,13 @@ def check_gpu():
         import subprocess
         result = subprocess.run(['nvidia-smi'], capture_output=True, text=True)
         if result.returncode == 0:
-            logger.info("NVIDIA GPU detected")
+            logger.info("[MIA] NVIDIA GPU detected")
             return True
         else:
-            logger.warning("No NVIDIA GPU detected - running in CPU mode")
+            logger.info("[MIA] No GPU detected - running in CPU mode")
             return False
     except Exception:
-        logger.warning("nvidia-smi not found - running in CPU mode")
+        logger.info("[MIA] Running in CPU mode")
         return False
 
 def main():
@@ -289,7 +348,7 @@ def main():
     
     # Verify required environment variables
     if not os.environ.get('MIA_API_URL'):
-        logger.warning("MIA_API_URL not set, using default: https://mia-backend-production.up.railway.app")
+        logger.info("[MIA] Using default API URL")
     
     # Create and run miner
     miner = MIAMiner()
@@ -297,12 +356,12 @@ def main():
     try:
         miner.poll_for_jobs()
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"[MIA] Fatal error: {type(e).__name__}")
         sys.exit(1)
 
 def signal_handler(signum, frame):
     """Handle shutdown signals"""
-    logger.info("Shutdown signal received")
+    logger.info("[MIA] Shutdown signal received")
     sys.exit(0)
 
 if __name__ == "__main__":
