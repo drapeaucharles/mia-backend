@@ -228,7 +228,7 @@ class WorkingMiner:
                     consecutive_errors = 0
                 
                 # Sleep between polls
-                time.sleep(5)
+                time.sleep(1)
                 
             except KeyboardInterrupt:
                 logger.info("\nShutting down gracefully...")
