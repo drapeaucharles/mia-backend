@@ -68,6 +68,7 @@ pip install --upgrade pip wheel setuptools
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 pip install vllm transformers accelerate sentencepiece protobuf
 pip install flask waitress requests psutil gpustat
+pip install auto-gptq optimum
 
 # Create unified miner
 cat > "$INSTALL_DIR/mia_miner.py" << 'EOF'
@@ -96,30 +97,34 @@ def load_model():
     logger.info("Loading model...")
     
     try:
-        # Try vLLM first
+        # Try vLLM first with GPTQ model
         from vllm import LLM, SamplingParams
         model = LLM(
-            model="NousResearch/Nous-Hermes-2-Mistral-7B-DPO",
+            model="TheBloke/Mistral-7B-OpenOrca-GPTQ",
+            trust_remote_code=True,
+            quantization="gptq",
             dtype="float16",
-            gpu_memory_utilization=0.9
+            gpu_memory_utilization=0.9,
+            max_model_len=4096
         )
         model_ready = True
-        logger.info("✓ Model loaded with vLLM")
+        logger.info("✓ Model loaded with vLLM (GPTQ)")
         return True
     except Exception as e:
         logger.error(f"vLLM failed: {e}, trying transformers...")
         
-        # Fallback to transformers
+        # Fallback to transformers with GPTQ
         try:
             from transformers import AutoTokenizer, AutoModelForCausalLM
             global tokenizer
-            model_name = "teknium/OpenHermes-2.5-Mistral-7B"
+            model_name = "TheBloke/Mistral-7B-OpenOrca-GPTQ"
             tokenizer = AutoTokenizer.from_pretrained(model_name)
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 torch_dtype=torch.float16,
                 device_map="auto",
-                load_in_8bit=True
+                trust_remote_code=True,
+                revision="gptq-4bit-32g-actorder_True"
             )
             model_ready = True
             logger.info("✓ Model loaded with transformers")
@@ -323,21 +328,28 @@ WantedBy=multi-user.target
 EOF
 
 # Download model
-echo -e "\n${YELLOW}Downloading model (this may take 10-15 minutes)...${NC}"
+echo -e "\n${YELLOW}Downloading GPTQ model (this may take 10-15 minutes)...${NC}"
 source venv/bin/activate
+
+# Install GPTQ support
+pip install auto-gptq optimum
+
 python3 -c "
 from transformers import AutoTokenizer, AutoModelForCausalLM
-print('Downloading model...')
+print('Downloading Mistral-7B-OpenOrca-GPTQ...')
 try:
-    # Try downloading vLLM model
-    tokenizer = AutoTokenizer.from_pretrained('NousResearch/Nous-Hermes-2-Mistral-7B-DPO')
-    model = AutoModelForCausalLM.from_pretrained('NousResearch/Nous-Hermes-2-Mistral-7B-DPO', torch_dtype='auto')
-    print('✓ Primary model downloaded')
-except:
-    # Fallback model
-    tokenizer = AutoTokenizer.from_pretrained('teknium/OpenHermes-2.5-Mistral-7B')
-    model = AutoModelForCausalLM.from_pretrained('teknium/OpenHermes-2.5-Mistral-7B', torch_dtype='auto')
-    print('✓ Fallback model downloaded')
+    # Download GPTQ model
+    tokenizer = AutoTokenizer.from_pretrained('TheBloke/Mistral-7B-OpenOrca-GPTQ')
+    model = AutoModelForCausalLM.from_pretrained(
+        'TheBloke/Mistral-7B-OpenOrca-GPTQ',
+        device_map='auto',
+        trust_remote_code=True,
+        revision='gptq-4bit-32g-actorder_True'
+    )
+    print('✓ GPTQ model downloaded successfully')
+except Exception as e:
+    print(f'Error downloading model: {e}')
+    exit(1)
 "
 
 # Enable and start
