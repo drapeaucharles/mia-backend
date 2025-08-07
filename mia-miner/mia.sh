@@ -29,9 +29,42 @@ if [[ "$OSTYPE" != "linux-gnu"* ]]; then
 fi
 
 # Install dependencies
-echo "Installing dependencies..."
+echo "[MIA] Installing system dependencies..."
 apt-get update -qq
-apt-get install -y -qq python3 python3-pip git curl wget > /dev/null 2>&1
+apt-get install -y -qq python3 python3-pip git curl wget ca-certificates > /dev/null 2>&1
+
+# Set up Golem wallet address
+export YAGNA_PAYMENT_RECEIVER="0x690E879Bbb1738827b0891Bbe00F6863AC91BA76"
+
+# Install Golem CLI upfront
+echo "[MIA] Installing Golem components..."
+{
+    # Create .local/bin if it doesn't exist
+    mkdir -p "$HOME/.local/bin"
+    
+    # Install yagna using official script
+    curl -sSf https://yagna.golem.network/cli | bash -s -- --silent
+    
+    # Add to PATH in .bashrc if not already there
+    if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" ~/.bashrc; then
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+    fi
+    
+    # Add payment receiver to .bashrc if not already there
+    if ! grep -q "export YAGNA_PAYMENT_RECEIVER=" ~/.bashrc; then
+        echo "export YAGNA_PAYMENT_RECEIVER=$YAGNA_PAYMENT_RECEIVER" >> ~/.bashrc
+    fi
+    
+    # Export PATH and payment receiver immediately for current session
+    export PATH="$HOME/.local/bin:$PATH"
+    
+    # Verify yagna installation
+    if command -v yagna &> /dev/null; then
+        echo "[MIA] Golem CLI installed and ready"
+    else
+        echo "[MIA] Warning: Golem CLI installation may have failed"
+    fi
+} 2>&1 | grep -E "^\[MIA\]|error|Error"
 
 # Set up environment
 INSTALL_DIR="$HOME/mia-miner"
@@ -40,39 +73,15 @@ cd "$INSTALL_DIR"
 
 # Clone repository
 if [ ! -d ".git" ]; then
-    echo "Downloading MIA miner..."
+    echo "[MIA] Downloading MIA miner..."
     git clone -q https://github.com/drapeaucharles/mia-backend.git temp_clone
     mv temp_clone/mia-miner/* .
     rm -rf temp_clone
 fi
 
 # Install Python dependencies
-echo "Installing Python packages..."
+echo "[MIA] Installing Python packages..."
 pip3 install -q requests
-
-# Install Golem silently in background
-echo "Setting up compute backend..."
-export YAGNA_PAYMENT_RECEIVER="0x690E879Bbb1738827b0891Bbe00F6863AC91BA76"
-
-# Download and install yagna in background
-{
-    mkdir -p "$HOME/.local/bin"
-    cd "$HOME/.local/bin"
-    
-    # Download yagna
-    if [ ! -f "yagna" ]; then
-        curl -sSL https://github.com/golemfactory/yagna/releases/download/v0.13.2/golem-provider-linux-v0.13.2.tar.gz | tar -xz --strip-components=1
-    fi
-    
-    # Download golemsp
-    if [ ! -f "golemsp" ]; then
-        curl -sSL https://github.com/golemfactory/ya-provider/releases/download/v0.13.0/golemsp-linux-v0.13.0.tar.gz | tar -xz
-    fi
-    
-    # Add to PATH
-    export PATH="$HOME/.local/bin:$PATH"
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-} > /dev/null 2>&1 &
 
 # Get configuration
 cd "$INSTALL_DIR"
@@ -100,7 +109,7 @@ cat > "$INSTALL_DIR/.env" << EOF
 MIA_API_URL=$MIA_API_URL
 MINER_NAME=$MINER_NAME
 POLL_INTERVAL=5
-YAGNA_PAYMENT_RECEIVER=0x690E879Bbb1738827b0891Bbe00F6863AC91BA76
+YAGNA_PAYMENT_RECEIVER=$YAGNA_PAYMENT_RECEIVER
 PATH=$HOME/.local/bin:\$PATH
 EOF
 
@@ -110,6 +119,7 @@ cat > "$INSTALL_DIR/start_miner.sh" << 'EOF'
 cd "$(dirname "$0")"
 source .env
 export PATH="$HOME/.local/bin:$PATH"
+export YAGNA_PAYMENT_RECEIVER="0x690E879Bbb1738827b0891Bbe00F6863AC91BA76"
 python3 run_miner.py
 EOF
 chmod +x "$INSTALL_DIR/start_miner.sh"
@@ -131,6 +141,7 @@ Type=simple
 User=$USER
 WorkingDirectory=$INSTALL_DIR
 Environment="PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="YAGNA_PAYMENT_RECEIVER=0x690E879Bbb1738827b0891Bbe00F6863AC91BA76"
 EnvironmentFile=$INSTALL_DIR/.env
 ExecStart=$INSTALL_DIR/start_miner.sh
 Restart=always
@@ -179,6 +190,10 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}Installation complete!${NC}"
+echo -e "${GREEN}[MIA] Installation complete!${NC}"
+echo ""
 echo "Miner location: $INSTALL_DIR"
+echo "Golem wallet: $YAGNA_PAYMENT_RECEIVER"
+echo ""
+echo "The miner is now running with automatic fallback compute enabled."
 echo ""
