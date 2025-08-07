@@ -635,13 +635,23 @@ async def list_miners(db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/get_work")
-async def get_work_for_miner(miner_id: int, db=Depends(get_db)):
+async def get_work_for_miner(miner_id: int, wait: bool = False, db=Depends(get_db)):
     """
     Get work for a specific miner
+    Optional long polling with wait parameter
     """
     try:
-        # Get next job from Redis queue
+        # Try to get a job immediately
         job = redis_queue.pop_job()
+        
+        # If no job and wait requested, poll for up to 30 seconds
+        if not job and wait:
+            import asyncio
+            for _ in range(30):  # 30 attempts, 1 second each
+                await asyncio.sleep(1)
+                job = redis_queue.pop_job()
+                if job:
+                    break
         
         if job:
             # Mark miner as active
