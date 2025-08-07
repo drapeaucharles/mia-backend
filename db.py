@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Float, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Float, Boolean, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import func
@@ -46,7 +46,12 @@ class Miner(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, unique=True)
     auth_key = Column(String(255), nullable=False, unique=True)
+    ip_address = Column(String(45), nullable=True)  # IPv4 or IPv6
+    gpu_name = Column(String(255), nullable=True)
+    gpu_memory_mb = Column(Integer, nullable=True)
+    status = Column(String(20), default="idle")  # idle, busy, offline
     job_count = Column(Integer, default=0)
+    total_tokens_generated = Column(BigInteger, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_active = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

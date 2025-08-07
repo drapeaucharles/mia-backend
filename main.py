@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 import uuid
 import os
 import logging
@@ -15,7 +15,8 @@ from schemas import (
     IdleJobRequest, IdleJobResponse, IdleJobNextResponse,
     IdleJobResultRequest, IdleJobResultResponse,
     BuybackResponse, SystemMetricsResponse,
-    GolemJobRequest, GolemJobResponse
+    GolemJobRequest, GolemJobResponse,
+    MinerStatusRequest, MinerStatusResponse
 )
 from redis_queue import RedisQueue
 from utils import generate_auth_key
@@ -586,6 +587,46 @@ async def report_golem_job(request: GolemJobRequest, db=Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"Error reporting Golem job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/miner/{miner_id}/status", response_model=MinerStatusResponse)
+async def update_miner_status(miner_id: int, request: MinerStatusRequest, db=Depends(get_db)):
+    """
+    Update miner status (idle/busy/offline)
+    """
+    try:
+        miner = db.query(database.Miner).filter(
+            database.Miner.id == miner_id
+        ).first()
+        
+        if not miner:
+            raise HTTPException(status_code=404, detail="Miner not found")
+        
+        miner.status = request.status
+        miner.last_active = datetime.utcnow()
+        db.commit()
+        
+        return MinerStatusResponse(
+            status="success",
+            message=f"Miner status updated to {request.status}"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/miners")
+async def list_miners(db=Depends(get_db)):
+    """
+    List all registered miners with their status
+    """
+    try:
+        miners = db.query(database.Miner).order_by(
+            database.Miner.last_active.desc()
+        ).all()
+        return miners
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

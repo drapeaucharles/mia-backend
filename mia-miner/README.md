@@ -1,33 +1,33 @@
 # MIA GPU Miner
 
-A GPU-powered miner client for the MIA (Decentralized AI Customer Support Assistant) network. This miner polls the MIA backend for jobs, processes them using GPU acceleration, and returns results. When no MIA jobs are available, it automatically runs fallback compute tasks to maximize GPU utilization.
+A GPU-powered miner client for the MIA (Decentralized AI Customer Support Assistant) network. This miner runs Mistral 7B Instruct locally on GPU to process multilingual customer support prompts.
 
 ## 🚀 Features
 
-- **Automatic Job Polling**: Continuously polls for MIA jobs
-- **GPU Acceleration**: Designed for NVIDIA GPUs (RTX 3090 recommended)
-- **Docker Containerized**: Easy deployment with GPU passthrough
-- **Auto-Registration**: Automatically registers with the MIA backend
-- **Golem Fallback**: Automatically runs compute tasks when no MIA jobs available
-- **Silent Operation**: All fallback operations are transparent to the user
-- **Network Resilience**: Continues operating even during backend outages
+- **Local GPU Inference**: Runs Mistral 7B Instruct model directly on GPU
+- **vLLM Integration**: High-performance inference server for efficient token generation
+- **Multilingual Support**: Handles prompts in English, French, Indonesian, and more
+- **Auto-Registration**: Automatically registers with MIA backend
+- **Real-time Status Updates**: Reports GPU status (idle/busy) to backend
+- **One-Line Installation**: Complete setup with a single command
 
 ## 📋 System Requirements
 
-- **GPU**: NVIDIA GPU with 24GB+ VRAM (RTX 3090, RTX 4090, A5000, etc.)
-- **CUDA**: Version 12.1 or higher
+- **GPU**: NVIDIA GPU with 16GB+ VRAM (RTX 3090, RTX 4090, A5000, etc.)
+- **CUDA**: Version 11.8 or higher
 - **OS**: Ubuntu 20.04/22.04 or similar Linux distribution
-- **Docker**: With NVIDIA Container Toolkit
-- **Network**: Stable internet connection to MIA backend
+- **RAM**: 32GB+ recommended
+- **Storage**: 50GB+ free space for model files
+- **Python**: 3.10 or higher
 
 ## 🔧 Quick Start
 
-### One-Line Install (Recommended)
+### One-Line Install
 
 Run this command on your GPU server:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/mia-miner/mia.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner.sh)
 ```
 
 Or with environment variables to skip prompts:
@@ -35,53 +35,28 @@ Or with environment variables to skip prompts:
 ```bash
 export MIA_API_URL="https://mia-backend-production.up.railway.app"
 export MINER_NAME="my-gpu-miner"
-curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/mia-miner/mia.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner.sh)
 ```
 
 This will:
-- Install all required dependencies
-- Set up the MIA miner
-- Configure fallback compute components
-- Start the miner automatically
-- Optionally set up auto-start on boot
-
-### Manual Docker Run
-
-If you prefer to run manually:
-
-```bash
-# Build the image
-docker build -t mia-miner:latest .
-
-# Run the miner
-docker run -d \
-  --name mia-miner \
-  --gpus all \
-  --restart unless-stopped \
-  -e MIA_API_URL="https://mia-backend-production.up.railway.app" \
-  -e MINER_NAME="gpu-miner-001" \
-  -e POLL_INTERVAL="5" \
-  mia-miner:latest
-```
-
-## 🔑 Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `MIA_API_URL` | URL of the MIA backend API | `https://mia-backend-production.up.railway.app` |
-| `MINER_NAME` | Unique name for this miner | `gpu-miner-001` |
-| `POLL_INTERVAL` | Seconds between job polls | `5` |
+1. Check for NVIDIA GPU and drivers
+2. Install Python dependencies
+3. Install PyTorch with CUDA support
+4. Install vLLM inference server
+5. Download Mistral 7B Instruct model (~14GB)
+6. Configure and start the miner service
+7. Register with MIA backend
 
 ## 📊 Monitoring
 
 View miner logs:
 ```bash
-docker logs -f mia-miner
+sudo journalctl -u mia-gpu-miner -f
 ```
 
 Check miner status:
 ```bash
-docker ps | grep mia-miner
+sudo systemctl status mia-gpu-miner
 ```
 
 Monitor GPU usage:
@@ -89,144 +64,141 @@ Monitor GPU usage:
 nvidia-smi -l 1
 ```
 
+Check vLLM server:
+```bash
+curl http://localhost:8000/
+```
+
 ## 🛠️ Management Commands
 
 Stop the miner:
 ```bash
-docker stop mia-miner
+sudo systemctl stop mia-gpu-miner
 ```
 
 Start the miner:
 ```bash
-docker start mia-miner
+sudo systemctl start mia-gpu-miner
 ```
 
 Restart the miner:
 ```bash
-docker restart mia-miner
-```
-
-Remove the miner:
-```bash
-docker rm -f mia-miner
-```
-
-Update configuration:
-```bash
-# Edit the config file
-nano ~/mia-miner/miner.env
-
-# Restart to apply changes
-docker restart mia-miner
+sudo systemctl restart mia-gpu-miner
 ```
 
 ## 📁 File Structure
 
 ```
-mia-miner/
-├── run_miner.py         # Main miner script
-├── fallback_manager.py  # Handles fallback compute tasks
-├── Dockerfile           # Container configuration
-├── mia.sh              # One-line installer script
-├── install.sh          # Legacy installation script
-└── README.md           # This file
+mia-gpu-miner/
+├── venv/                # Python virtual environment
+├── vllm_server.py      # vLLM inference server
+├── gpu_miner.py        # Main miner client
+├── start_miner.sh      # Startup script
+├── .env                # Environment configuration
+├── vllm.log           # vLLM server logs
+└── vllm.pid           # vLLM process ID
 ```
 
 ## 🔄 How It Works
 
-1. **Registration**: On startup, the miner registers with the backend and receives an auth key
-2. **Job Polling**: Every 5 seconds (configurable), the miner checks for MIA jobs (`/job/next`)
-3. **Processing**: Currently simulates inference (Mixtral integration coming soon)
-4. **Result Submission**: Sends results back with token count
-5. **Golem Fallback**: When no jobs available for 10+ seconds:
-   - Automatically starts background compute tasks
-   - All earnings sent to shared wallet: `0x690E879Bbb1738827b0891Bbe00F6863AC91BA76`
-   - Stops immediately when new MIA jobs arrive
-   - Reports compute time and estimated earnings to backend
+1. **Model Server**: vLLM loads Mistral 7B Instruct on GPU at startup
+2. **Registration**: Miner registers with backend, reporting GPU specs
+3. **Job Polling**: Every 5 seconds, checks backend for new prompts
+4. **Inference**: When job received, sends prompt to vLLM server
+5. **Response**: Generated text sent back to backend with token count
+6. **Status Updates**: Reports idle/busy status in real-time
 
-## 🚧 Current Limitations
+## 🌍 Multilingual Support
 
-- **Simulated Inference**: Currently returns dummy responses (real Mixtral integration pending)
-- **No Model Loading**: GPU is detected but not actively used yet
+Mistral 7B Instruct supports multiple languages including:
+- English
+- French
+- Spanish
+- German
+- Italian
+- Portuguese
+- Indonesian
+- And many more...
 
-## 🔜 Coming Soon
+The model automatically detects and responds in the appropriate language.
 
-- Real Mixtral model integration
-- Dynamic model loading based on job requirements
-- Performance metrics and reporting
-- Multi-GPU support
-- Model caching for faster inference
+## 📝 Environment Variables
 
-## 🐛 Troubleshooting
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MIA_API_URL` | MIA backend URL | `https://mia-backend-production.up.railway.app` |
+| `MINER_NAME` | Unique miner identifier | `gpu-miner-{hostname}` |
+| `VLLM_URL` | Local vLLM server URL | `http://localhost:8000` |
+| `POLL_INTERVAL` | Seconds between job checks | `5` |
 
-### Miner won't start
+## 🚧 Troubleshooting
+
+### GPU not detected
 ```bash
-# Check Docker logs
-docker logs mia-miner
+# Check NVIDIA drivers
+nvidia-smi
 
-# Verify GPU access
-docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi
+# Install drivers if needed
+sudo apt update
+sudo apt install nvidia-driver-525
 ```
 
-### Can't connect to backend
+### Out of GPU memory
+- Ensure no other processes are using GPU
+- Check minimum 16GB VRAM available
+- Consider using quantized model (future feature)
+
+### vLLM server not starting
+```bash
+# Check vLLM logs
+tail -f ~/mia-gpu-miner/vllm.log
+
+# Test vLLM manually
+cd ~/mia-gpu-miner
+source venv/bin/activate
+python vllm_server.py
+```
+
+### Cannot connect to backend
 ```bash
 # Test backend connectivity
 curl https://mia-backend-production.up.railway.app/health
 
-# Check your firewall settings
+# Check firewall
 sudo ufw status
 ```
 
-### GPU not detected
-```bash
-# Install NVIDIA drivers
-sudo apt update
-sudo apt install nvidia-driver-525
+## 🔐 Security
 
-# Verify installation
-nvidia-smi
-```
+- Miners use unique auth keys for identification
+- All communication with backend via HTTPS
+- Model runs locally - no data sent to third parties
+- IP addresses tracked for security monitoring
 
-## 📝 Manual Installation
+## 📈 Performance
 
-If the install script doesn't work:
+Expected performance with Mistral 7B:
+- **RTX 3090 (24GB)**: ~50-100 tokens/second
+- **RTX 4090 (24GB)**: ~100-150 tokens/second
+- **A100 (40GB)**: ~200-300 tokens/second
 
-1. Install Docker:
-```bash
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker $USER
-```
+Actual performance depends on prompt length and complexity.
 
-2. Install NVIDIA Container Toolkit:
-```bash
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo systemctl restart docker
-```
+## 🤝 Contributing
 
-3. Clone and build:
-```bash
-git clone https://github.com/drapeaucharles/mia-backend.git
-cd mia-backend/mia-miner
-docker build -t mia-miner:latest .
-```
-
-4. Run:
-```bash
-docker run -d --name mia-miner --gpus all \
-  -e MIA_API_URL="https://mia-backend-production.up.railway.app" \
-  -e MINER_NAME="my-gpu-miner" \
-  mia-miner:latest
-```
+To improve the miner:
+1. Fork the repository
+2. Create a feature branch
+3. Test on GPU hardware
+4. Submit pull request
 
 ## 📞 Support
 
 For issues or questions:
-- Check the [main MIA repository](https://github.com/drapeaucharles/mia-backend)
-- Review miner logs: `docker logs mia-miner`
-- Ensure your GPU meets the requirements
+- Check logs first: `sudo journalctl -u mia-gpu-miner -f`
+- Verify GPU requirements are met
+- Ensure backend is accessible
+- Report issues to the MIA repository
 
 ## 📄 License
 

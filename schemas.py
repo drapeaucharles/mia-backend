@@ -174,3 +174,12 @@ class GolemJobModel(BaseModel):
     
     class Config:
         from_attributes = True
+
+class MinerStatusRequest(BaseModel):
+    """Request model for /miner/{miner_id}/status endpoint"""
+    status: str = Field(..., description="Miner status", pattern="^(idle|busy|offline)$")
+
+class MinerStatusResponse(BaseModel):
+    """Response model for /miner/{miner_id}/status endpoint"""
+    status: str = Field(..., description="Update status")
+    message: str = Field(..., description="Status message")
