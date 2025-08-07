@@ -10,8 +10,9 @@ A FastAPI backend for MIA (Decentralized AI Customer Support Assistant), where m
 - **Docker Support**: Ready for Railway deployment
 - **Health Checks**: Built-in health monitoring endpoints
 - **RunPod Integration**: Process external AI workloads when main queue is idle
+- **Golem Fallback**: Miners automatically run compute tasks during idle time
 - **Token Buyback**: Automatic buyback and burn mechanism for $SERV tokens
-- **Revenue Tracking**: Monitor RunPod income and buyback statistics
+- **Revenue Tracking**: Monitor RunPod income, Golem earnings, and buyback statistics
 
 ## API Endpoints
 
@@ -28,6 +29,7 @@ A FastAPI backend for MIA (Decentralized AI Customer Support Assistant), where m
 - `GET /idle-job/next` - Get next idle job when main queue is empty
 - `POST /idle-job/result` - Submit results from processed idle jobs
 - `GET /idle-job/process/{job_id}` - Process idle job with RunPod (testing)
+- `POST /report_golem_job` - Miners report Golem fallback compute sessions
 
 ### Buyback & Metrics Endpoints
 
@@ -138,13 +140,21 @@ Environment variables required in Railway:
 
 ## Idle GPU Monetization
 
-When the main MIA job queue is empty, the system can process external AI workloads using RunPod:
+The system maximizes GPU utilization through two revenue streams when the main MIA job queue is empty:
 
+### RunPod Integration
 1. External clients submit prompts via `/idle-job` with an API key
 2. System estimates revenue based on token generation
 3. Jobs are processed through RunPod's serverless Mixtral endpoints
 4. Revenue accumulates in the `runpod_income_usd` metric
 5. When threshold is reached, automatic buyback and burn is triggered
+
+### Golem Network Fallback
+1. Miners automatically run Golem compute tasks when no jobs available for 10+ seconds
+2. All operations are silent - no Golem branding shown to miners
+3. GLM earnings sent to shared wallet: `0x690E879Bbb1738827b0891Bbe00F6863AC91BA76`
+4. Miners report compute time via `/report_golem_job` endpoint
+5. Fallback stops immediately when new MIA jobs arrive
 
 ### Buyback Mechanism
 
@@ -211,6 +221,14 @@ The buyback engine automatically:
 - `metric_name`: Metric identifier
 - `value`: Metric value
 - `updated_at`: Last update timestamp
+
+### GolemJob
+- `id`: Primary key
+- `miner_name`: Name of the miner
+- `duration_sec`: Duration of fallback compute in seconds
+- `estimated_glm`: Estimated GLM earned
+- `timestamp`: When fallback ended
+- `created_at`: When record was created
 
 ## Job Queue Structure
 

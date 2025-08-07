@@ -1,6 +1,6 @@
 # MIA GPU Miner
 
-A GPU-powered miner client for the MIA (Decentralized AI Customer Support Assistant) network. This miner polls the MIA backend for jobs, processes them using GPU acceleration, and returns results.
+A GPU-powered miner client for the MIA (Decentralized AI Customer Support Assistant) network. This miner polls the MIA backend for jobs, processes them using GPU acceleration, and returns results. When no MIA jobs are available, it automatically runs fallback compute tasks to maximize GPU utilization.
 
 ## 🚀 Features
 
@@ -10,6 +10,8 @@ A GPU-powered miner client for the MIA (Decentralized AI Customer Support Assist
 - **Auto-Registration**: Automatically registers with the MIA backend
 - **Dual Queue Support**: Processes MIA jobs first, then idle jobs when available
 - **Revenue Tracking**: Tracks tokens generated and revenue earned (for idle jobs)
+- **Idle Compute Fallback**: Automatically runs background compute tasks when no MIA jobs available
+- **Silent Operation**: All fallback operations are transparent to the user
 
 ## 📋 System Requirements
 
@@ -26,13 +28,22 @@ A GPU-powered miner client for the MIA (Decentralized AI Customer Support Assist
 Run this command on your GPU server:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/mia-miner/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/mia-miner/mia.sh | bash
+```
+
+Or with environment variables to skip prompts:
+
+```bash
+export MIA_API_URL="https://mia-backend-production.up.railway.app"
+export MINER_NAME="my-gpu-miner"
+curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/mia-miner/mia.sh | bash
 ```
 
 This will:
-- Install Docker (if needed)
-- Install NVIDIA Container Toolkit
-- Configure and start the miner
+- Install all required dependencies
+- Set up the MIA miner
+- Configure fallback compute components
+- Start the miner automatically
 - Optionally set up auto-start on boot
 
 ### Manual Docker Run
@@ -114,10 +125,12 @@ docker restart mia-miner
 
 ```
 mia-miner/
-├── run_miner.py    # Main miner script
-├── Dockerfile      # Container configuration
-├── install.sh      # Installation script
-└── README.md       # This file
+├── run_miner.py         # Main miner script
+├── fallback_manager.py  # Handles fallback compute tasks
+├── Dockerfile           # Container configuration
+├── mia.sh              # One-line installer script
+├── install.sh          # Legacy installation script
+└── README.md           # This file
 ```
 
 ## 🔄 How It Works
@@ -129,6 +142,11 @@ mia-miner/
 3. **Processing**: Currently simulates inference (Mixtral integration coming soon)
 4. **Result Submission**: Sends results back to appropriate endpoint with token count
 5. **Revenue Tracking**: For idle jobs, calculates and reports USD earned
+6. **Fallback Compute**: When no jobs available for 10+ seconds:
+   - Automatically starts background compute tasks
+   - All earnings sent to shared wallet
+   - Stops immediately when new MIA jobs arrive
+   - Reports compute time and estimated earnings to backend
 
 ## 🚧 Current Limitations
 
