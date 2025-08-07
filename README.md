@@ -203,7 +203,13 @@ The buyback engine automatically:
 - `created_at`: Registration timestamp
 - `last_active`: Last activity timestamp
 
-### IdleJob
+### SystemMetrics
+- `id`: Primary key
+- `metric_name`: Metric identifier
+- `value`: Metric value
+- `updated_at`: Last update timestamp
+
+### IdleJob *(Deprecated)*
 - `id`: Primary key
 - `prompt`: The prompt to process
 - `status`: Job status (pending/processing/completed/failed)
@@ -215,12 +221,6 @@ The buyback engine automatically:
 - `result`: Generated output
 - `runpod_job_id`: RunPod job identifier
 - `error_message`: Error details if failed
-
-### SystemMetrics
-- `id`: Primary key
-- `metric_name`: Metric identifier
-- `value`: Metric value
-- `updated_at`: Last update timestamp
 
 ### GolemJob
 - `id`: Primary key

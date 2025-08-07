@@ -4,14 +4,13 @@ A GPU-powered miner client for the MIA (Decentralized AI Customer Support Assist
 
 ## 🚀 Features
 
-- **Automatic Job Polling**: Continuously polls for both MIA jobs and idle jobs
+- **Automatic Job Polling**: Continuously polls for MIA jobs
 - **GPU Acceleration**: Designed for NVIDIA GPUs (RTX 3090 recommended)
 - **Docker Containerized**: Easy deployment with GPU passthrough
 - **Auto-Registration**: Automatically registers with the MIA backend
-- **Dual Queue Support**: Processes MIA jobs first, then idle jobs when available
-- **Revenue Tracking**: Tracks tokens generated and revenue earned (for idle jobs)
-- **Idle Compute Fallback**: Automatically runs background compute tasks when no MIA jobs available
+- **Golem Fallback**: Automatically runs compute tasks when no MIA jobs available
 - **Silent Operation**: All fallback operations are transparent to the user
+- **Network Resilience**: Continues operating even during backend outages
 
 ## 📋 System Requirements
 
@@ -136,15 +135,12 @@ mia-miner/
 ## 🔄 How It Works
 
 1. **Registration**: On startup, the miner registers with the backend and receives an auth key
-2. **Job Polling**: Every 5 seconds (configurable), the miner:
-   - Checks for MIA jobs first (`/job/next`)
-   - If none available, checks for idle jobs (`/idle-job/next`)
+2. **Job Polling**: Every 5 seconds (configurable), the miner checks for MIA jobs (`/job/next`)
 3. **Processing**: Currently simulates inference (Mixtral integration coming soon)
-4. **Result Submission**: Sends results back to appropriate endpoint with token count
-5. **Revenue Tracking**: For idle jobs, calculates and reports USD earned
-6. **Fallback Compute**: When no jobs available for 10+ seconds:
+4. **Result Submission**: Sends results back with token count
+5. **Golem Fallback**: When no jobs available for 10+ seconds:
    - Automatically starts background compute tasks
-   - All earnings sent to shared wallet
+   - All earnings sent to shared wallet: `0x690E879Bbb1738827b0891Bbe00F6863AC91BA76`
    - Stops immediately when new MIA jobs arrive
    - Reports compute time and estimated earnings to backend
 
@@ -152,7 +148,6 @@ mia-miner/
 
 - **Simulated Inference**: Currently returns dummy responses (real Mixtral integration pending)
 - **No Model Loading**: GPU is detected but not actively used yet
-- **Fixed Pricing**: Uses hardcoded $0.001 per 1K tokens for idle jobs
 
 ## 🔜 Coming Soon
 

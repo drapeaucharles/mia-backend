@@ -198,45 +198,6 @@ class MIAMiner:
             logger.warning(f"[MIA] Error processing job: {type(e).__name__}")
             return False
     
-    def process_idle_job(self, job: Dict[str, Any]) -> bool:
-        """Process an idle job and submit the result"""
-        job_id = job.get('job_id')
-        prompt = job.get('prompt', '')
-        max_tokens = job.get('max_tokens', 500)
-        
-        logger.info(f"[MIA] Processing idle job {job_id}")
-        
-        try:
-            # Simulate inference
-            result = self.simulate_inference(prompt, max_tokens)
-            
-            # Calculate simulated earnings (matching backend pricing)
-            tokens_in_thousands = result["output_tokens"] / 1000
-            revenue_usd = round(tokens_in_thousands * 0.001, 6)  # $0.001 per 1K tokens
-            
-            # Submit result with retry
-            response = self.safe_request(
-                'POST',
-                f"{self.api_url}/idle-job/result",
-                json={
-                    "job_id": job_id,
-                    "output": result["output"],
-                    "output_tokens": result["output_tokens"],
-                    "usd_earned": revenue_usd,
-                    "runpod_job_id": f"sim-{job_id}-{int(time.time())}"
-                }
-            )
-            
-            if response and response.status_code == 200:
-                logger.info(f"[MIA] Idle job {job_id} completed. Tokens: {result['output_tokens']}, Revenue: ${revenue_usd}")
-                return True
-            else:
-                logger.warning(f"[MIA] Could not submit idle job result")
-                return False
-                
-        except Exception as e:
-            logger.warning(f"[MIA] Error processing idle job: {type(e).__name__}")
-            return False
     
     def poll_for_jobs(self):
         """Main polling loop"""
@@ -267,32 +228,12 @@ class MIAMiner:
                         self.process_mia_job(job)
                         continue  # Skip sleep to process next job quickly
                     else:
-                        # No MIA jobs, try idle jobs
-                        idle_response = self.safe_request(
-                            'GET',
-                            f"{self.api_url}/idle-job/next"
-                        )
+                        # No jobs available - check if we should start fallback
+                        time_since_last_job = time.time() - self.last_job_time
                         
-                        if idle_response and idle_response.status_code == 200:
-                            idle_job = idle_response.json()
-                            
-                            if idle_job.get('job_id'):
-                                self.last_job_time = time.time()
-                                
-                                # Stop fallback if running
-                                if self.fallback_active:
-                                    self.fallback_manager.stop_fallback()
-                                    self.fallback_active = False
-                                
-                                self.process_idle_job(idle_job)
-                                continue  # Skip sleep to process next job quickly
-                            else:
-                                # No jobs available - check if we should start fallback
-                                time_since_last_job = time.time() - self.last_job_time
-                                
-                                if time_since_last_job > self.fallback_idle_threshold and not self.fallback_active:
-                                    self.fallback_manager.start_fallback()
-                                    self.fallback_active = True
+                        if time_since_last_job > self.fallback_idle_threshold and not self.fallback_active:
+                            self.fallback_manager.start_fallback()
+                            self.fallback_active = True
                 elif response is None:
                     # Network error - continue with fallback
                     consecutive_errors += 1
