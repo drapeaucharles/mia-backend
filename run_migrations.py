@@ -11,34 +11,40 @@ from db import init_db, engine
 
 load_dotenv()
 
-def check_and_add_ip_address_column():
-    """Add ip_address column to miners table if missing"""
+def check_and_add_missing_columns():
+    """Add all missing columns to miners table"""
+    columns_to_add = [
+        ("ip_address", "VARCHAR(45)"),
+        ("gpu_name", "VARCHAR(255)"),
+        ("gpu_memory_mb", "INTEGER"),
+        ("status", "VARCHAR(20) DEFAULT 'idle'"),
+        ("job_count", "INTEGER DEFAULT 0"),
+        ("total_tokens_generated", "BIGINT DEFAULT 0"),
+        ("last_active", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP")
+    ]
+    
     try:
         with engine.connect() as conn:
-            # Check if column exists
-            result = conn.execute(text("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name='miners' AND column_name='ip_address'
-            """))
+            for column_name, column_type in columns_to_add:
+                # Check if column exists
+                result = conn.execute(text(f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='miners' AND column_name='{column_name}'
+                """))
+                
+                if result.fetchone():
+                    print(f"✓ Column '{column_name}' already exists")
+                else:
+                    # Add the column
+                    conn.execute(text(f"ALTER TABLE miners ADD COLUMN {column_name} {column_type};"))
+                    conn.commit()
+                    print(f"✓ Added column '{column_name}'")
             
-            if result.fetchone():
-                print("✓ Column 'ip_address' already exists")
-                return True
-            
-            # Add the column
-            print("Adding 'ip_address' column to miners table...")
-            conn.execute(text("""
-                ALTER TABLE miners 
-                ADD COLUMN ip_address VARCHAR(45);
-            """))
-            conn.commit()
-            
-            print("✓ Added 'ip_address' column")
             return True
             
     except Exception as e:
-        print(f"✗ Failed to add ip_address column: {e}")
+        print(f"✗ Failed to add columns: {e}")
         return False
 
 def run_all_migrations():
@@ -52,7 +58,7 @@ def run_all_migrations():
     
     # Add missing columns
     print("\n2. Checking for missing columns...")
-    check_and_add_ip_address_column()
+    check_and_add_missing_columns()
     
     print("\n✓ All migrations completed successfully!")
 

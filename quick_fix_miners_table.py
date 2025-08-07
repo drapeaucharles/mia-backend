@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Quick fix for miners table - adds missing ip_address column
+Quick fix for miners table - adds all missing columns
 Run this on Railway console: python quick_fix_miners_table.py
 """
 
@@ -17,20 +17,39 @@ if not DATABASE_URL:
 
 engine = create_engine(DATABASE_URL)
 
+# List of columns to add with their types
+columns_to_add = [
+    ("ip_address", "VARCHAR(45)"),
+    ("gpu_name", "VARCHAR(255)"),
+    ("gpu_memory_mb", "INTEGER"),
+    ("status", "VARCHAR(20) DEFAULT 'idle'"),
+    ("job_count", "INTEGER DEFAULT 0"),
+    ("total_tokens_generated", "BIGINT DEFAULT 0"),
+    ("last_active", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP")
+]
+
 with engine.connect() as conn:
-    try:
-        # Try to add the column
-        conn.execute(text("ALTER TABLE miners ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45);"))
-        conn.commit()
-        print("✓ Fixed miners table - added ip_address column")
-    except Exception as e:
-        # PostgreSQL doesn't support IF NOT EXISTS for columns, try without it
+    for column_name, column_type in columns_to_add:
         try:
-            conn.execute(text("ALTER TABLE miners ADD COLUMN ip_address VARCHAR(45);"))
-            conn.commit()
-            print("✓ Fixed miners table - added ip_address column")
-        except Exception as e2:
-            if "already exists" in str(e2).lower():
-                print("✓ Column ip_address already exists")
+            # Check if column exists
+            result = conn.execute(text(f"""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name='miners' AND column_name='{column_name}'
+            """))
+            
+            if result.fetchone():
+                print(f"✓ Column '{column_name}' already exists")
             else:
-                print(f"✗ Error: {e2}")
+                # Add the column
+                conn.execute(text(f"ALTER TABLE miners ADD COLUMN {column_name} {column_type};"))
+                conn.commit()
+                print(f"✓ Added column '{column_name}'")
+                
+        except Exception as e:
+            if "already exists" in str(e).lower():
+                print(f"✓ Column '{column_name}' already exists")
+            else:
+                print(f"✗ Error adding '{column_name}': {e}")
+    
+    print("\n✓ Miners table schema fixed!")

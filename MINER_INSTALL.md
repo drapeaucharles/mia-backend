@@ -86,8 +86,8 @@ python3 << 'EOF'
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 print("Downloading Mistral 7B Instruct (14GB)...")
-tokenizer = AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1')
-model = AutoModelForCausalLM.from_pretrained('mistralai/Mistral-7B-Instruct-v0.1', torch_dtype='auto')
+tokenizer = AutoTokenizer.from_pretrained('mistralai/Mistral-7B-Instruct-v0.2')
+model = AutoModelForCausalLM.from_pretrained('mistralai/Mistral-7B-Instruct-v0.2', torch_dtype='auto')
 print("Download complete!")
 EOF
 ```
