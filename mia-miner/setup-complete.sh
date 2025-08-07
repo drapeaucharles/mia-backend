@@ -323,7 +323,7 @@ class MIAMiner:
         
         try:
             response = self.session.post(
-                f"{MIA_BACKEND_URL}/miner/register",
+                f"{MIA_BACKEND_URL}/register_miner",
                 json=data,
                 timeout=30
             )

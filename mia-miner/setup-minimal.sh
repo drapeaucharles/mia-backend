@@ -234,9 +234,9 @@ class MIAMiner:
                 "model": "Mistral-7B-OpenOrca-GPTQ",
                 "max_tokens": 4096
             }
-            logger.info(f"Registering with: {MIA_URL}/miner/register")
+            logger.info(f"Registering with: {MIA_URL}/register_miner")
             
-            r = self.session.post(f"{MIA_URL}/miner/register", json=data, timeout=30)
+            r = self.session.post(f"{MIA_URL}/register_miner", json=data, timeout=30)
             logger.info(f"Registration response: {r.status_code}")
             
             if r.status_code != 200:

@@ -320,7 +320,7 @@ class MIAMiner:
                 "max_tokens": 4096
             }
             
-            r = self.session.post(f"{MIA_BACKEND_URL}/miner/register", json=data)
+            r = self.session.post(f"{MIA_BACKEND_URL}/register_miner", json=data)
             r.raise_for_status()
             
             self.miner_id = r.json()["miner_id"]
