@@ -49,13 +49,37 @@ else
     nvidia-smi
 fi
 
-# Install system dependencies
+# Detect Python version
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
+PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
+
+echo -e "\n${GREEN}Detected Python $PYTHON_VERSION${NC}"
+
+# Install system dependencies based on Python version
 echo -e "\n${YELLOW}[3/10] Installing system dependencies...${NC}"
-$SUDO_CMD apt-get install -y -qq \
-    python3.10 python3.10-venv python3.10-dev python3-pip \
-    git curl wget build-essential \
-    libssl-dev libffi-dev python3-setuptools \
-    libnccl2 libnccl-dev
+
+# For Ubuntu 20.04 (Python 3.8) or 22.04 (Python 3.10)
+if [[ "$PYTHON_VERSION" == "3.8" ]]; then
+    $SUDO_CMD apt-get install -y -qq \
+        python3.8 python3.8-venv python3.8-dev python3-pip \
+        git curl wget build-essential \
+        libssl-dev libffi-dev python3-setuptools
+elif [[ "$PYTHON_VERSION" == "3.10" ]]; then
+    $SUDO_CMD apt-get install -y -qq \
+        python3 python3-venv python3-dev python3-pip \
+        git curl wget build-essential \
+        libssl-dev libffi-dev python3-setuptools
+else
+    # Generic Python 3 installation
+    $SUDO_CMD apt-get install -y -qq \
+        python3 python3-venv python3-dev python3-pip \
+        git curl wget build-essential \
+        libssl-dev libffi-dev python3-setuptools
+fi
+
+# Install CUDA dependencies if available
+$SUDO_CMD apt-get install -y -qq libnccl2 libnccl-dev 2>/dev/null || true
 
 # Create installation directory
 INSTALL_DIR="/opt/mia-gpu-miner"
@@ -66,7 +90,7 @@ cd "$INSTALL_DIR"
 
 # Create Python virtual environment
 echo -e "\n${YELLOW}[5/10] Setting up Python environment...${NC}"
-python3.10 -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 
 # Upgrade pip
