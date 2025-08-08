@@ -252,13 +252,8 @@ class ConcurrentMinerClient:
                         if jobs:
                             logger.info(f"Fetched {len(jobs)} new jobs (active: {len(self.active_jobs)}/{max_concurrent})")
                     
-                    # Adaptive sleep based on load
-                    if len(self.active_jobs) >= max_concurrent:
-                        await asyncio.sleep(0.5)  # Check every 500ms when at capacity
-                    elif len(self.active_jobs) > 0:
-                        await asyncio.sleep(1)  # Check every 1s when partially loaded
-                    else:
-                        await asyncio.sleep(2)  # Check every 2s when completely idle
+                    # Always check every 0.5 seconds for maximum responsiveness
+                    await asyncio.sleep(0.5)
                         
                 except Exception as e:
                     logger.error(f"Job fetcher error: {e}")

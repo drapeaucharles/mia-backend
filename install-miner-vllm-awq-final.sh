@@ -382,7 +382,7 @@ class MinerClient:
                     time.sleep(60)
                     consecutive_errors = 0
                 
-                time.sleep(5)
+                time.sleep(1)  # Check every 1 second for faster job pickup
                 
             except KeyboardInterrupt:
                 logger.info("Shutdown requested")
