@@ -25,12 +25,18 @@ from runpod_manager import RunPodManager
 from buyback import BuybackEngine
 import asyncio
 
+# Import restaurant API router
+from restaurant_api import router as restaurant_router
+
 load_dotenv()
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MIA Backend", version="1.0.0")
+
+# Include restaurant API router
+app.include_router(restaurant_router)
 
 # Initialize Redis queue
 redis_queue = RedisQueue()
