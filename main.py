@@ -808,7 +808,7 @@ async def get_job_result(job_id: str, db=Depends(get_db)):
 
 # Restaurant API endpoint for direct generation
 @app.post("/api/generate")
-async def generate_for_restaurant(request: dict):
+async def generate_for_restaurant(request: dict, db=Depends(get_db)):
     """Direct generation endpoint for restaurant and other services"""
     
     prompt = request.get("prompt", "")
@@ -818,8 +818,43 @@ async def generate_for_restaurant(request: dict):
     
     logger.info(f"Direct generation request from: {source}")
     
-    # Simple fallback response for now
-    # In production, this would forward to an available miner
+    # Create a job and add to queue
+    job_id = str(uuid.uuid4())
+    job = {
+        "job_id": job_id,
+        "prompt": prompt,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "context": "",
+        "session_id": f"restaurant-{source}",
+        "business_id": source,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    # Push job to queue
+    redis_queue.push_job(job)
+    logger.info(f"Job {job_id} queued for restaurant request")
+    
+    # Wait for result with timeout
+    max_wait_time = 30  # seconds
+    poll_interval = 0.5  # seconds
+    elapsed_time = 0
+    
+    while elapsed_time < max_wait_time:
+        result = redis_queue.get_result(job_id)
+        if result:
+            logger.info(f"Got result for job {job_id}")
+            return {
+                "text": result.get("response", result.get("text", "")),
+                "tokens_generated": result.get("tokens_generated", 0),
+                "source": "miner"
+            }
+        
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
+    
+    # Timeout - return fallback response
+    logger.warning(f"Timeout waiting for job {job_id} - returning fallback")
     
     prompt_lower = prompt.lower()
     
