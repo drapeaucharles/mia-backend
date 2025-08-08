@@ -23,16 +23,32 @@ echo -e "${YELLOW}Installing to: $INSTALL_DIR${NC}"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Install Python if needed
-if ! command -v python3 &> /dev/null; then
-    echo -e "${YELLOW}Installing Python...${NC}"
-    apt-get update && apt-get install -y python3 python3-pip python3-venv
+# Install Python and venv if needed
+echo -e "${YELLOW}Installing Python dependencies...${NC}"
+if command -v apt-get &> /dev/null; then
+    # Debian/Ubuntu
+    apt-get update
+    apt-get install -y python3 python3-pip python3-venv python3-dev
+    # Try to install specific venv package based on Python version
+    PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    apt-get install -y python${PYTHON_VERSION}-venv || true
 fi
 
 # Create virtual environment
 echo -e "${YELLOW}Creating Python virtual environment...${NC}"
-python3 -m venv venv
-source venv/bin/activate
+# Try venv first, fallback to direct pip if it fails
+if ! python3 -m venv venv 2>/dev/null; then
+    echo -e "${YELLOW}venv failed, using pip directly...${NC}"
+    mkdir -p venv
+    cd venv
+    mkdir -p bin lib
+    cd ..
+    export PIP_PREFIX="$INSTALL_DIR/venv"
+    export PATH="$PIP_PREFIX/bin:$PATH"
+    export PYTHONPATH="$PIP_PREFIX/lib/python$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')/site-packages:$PYTHONPATH"
+else
+    source venv/bin/activate
+fi
 
 # Upgrade pip
 pip install --upgrade pip
