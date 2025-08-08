@@ -63,16 +63,22 @@ source venv/bin/activate
 # Upgrade pip
 pip install --upgrade pip wheel setuptools
 
-# Install PyTorch
-echo -e "\n${YELLOW}Installing PyTorch...${NC}"
+# Install PyTorch FIRST (required for auto-gptq)
+echo -e "\n${YELLOW}Installing PyTorch with CUDA 11.8...${NC}"
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-# Install requirements
+# Verify PyTorch installation
+python -c "import torch; print(f'PyTorch {torch.__version__} installed with CUDA {torch.cuda.is_available()}')" || exit 1
+
+# Install auto-gptq (requires PyTorch to be installed first)
+echo -e "\n${YELLOW}Installing auto-gptq...${NC}"
+pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu118/
+
+# Install other requirements
 echo -e "\n${YELLOW}Installing inference packages...${NC}"
-pip install transformers accelerate sentencepiece protobuf
+pip install transformers accelerate sentencepiece protobuf optimum
 pip install requests psutil gpustat py-cpuinfo
 pip install flask waitress
-pip install auto-gptq optimum
 
 # Create unified miner script (same as before)
 cat > "$INSTALL_DIR/mia_miner_unified.py" << 'EOF'
