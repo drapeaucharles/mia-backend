@@ -76,6 +76,7 @@ echo -e "\n${YELLOW}Installing inference packages...${NC}"
 pip install transformers accelerate sentencepiece protobuf
 pip install requests psutil gpustat py-cpuinfo
 pip install flask waitress
+pip install auto-gptq optimum
 
 # Create simple inference server
 cat > "$INSTALL_DIR/inference_server.py" << 'EOF'
@@ -99,21 +100,21 @@ def load_model():
     global model, tokenizer
     logger.info("Loading model...")
     
-    model_name = "teknium/OpenHermes-2.5-Mistral-7B"
+    model_name = "TheBloke/Mistral-7B-OpenOrca-GPTQ"
     
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float16,
         device_map="auto",
-        load_in_8bit=True
+        trust_remote_code=False,
+        revision="gptq-4bit-32g-actorder_True"
     )
     
     logger.info("Model loaded successfully!")
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ready", "model": "OpenHermes-2.5-Mistral-7B"})
+    return jsonify({"status": "ready", "model": "Mistral-7B-OpenOrca-GPTQ"})
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -145,7 +146,7 @@ def generate():
         return jsonify({
             "text": response,
             "tokens_generated": len(outputs[0]) - len(inputs.input_ids[0]),
-            "model": "OpenHermes-2.5-Mistral-7B"
+            "model": "Mistral-7B-OpenOrca-GPTQ"
         })
         
     except Exception as e:
@@ -383,22 +384,23 @@ WantedBy=multi-user.target
 EOF
 
 # Download model
-echo -e "\n${YELLOW}Downloading model (this may take 10-15 minutes)...${NC}"
+echo -e "\n${YELLOW}Downloading GPTQ model (this may take 5-10 minutes)...${NC}"
 cd "$INSTALL_DIR"
 source venv/bin/activate
 
 python3 -c "
-print('Downloading OpenHermes-2.5-Mistral-7B...')
+print('Downloading Mistral-7B-OpenOrca-GPTQ...')
 try:
     from transformers import AutoTokenizer, AutoModelForCausalLM
-    tokenizer = AutoTokenizer.from_pretrained('teknium/OpenHermes-2.5-Mistral-7B')
+    tokenizer = AutoTokenizer.from_pretrained('TheBloke/Mistral-7B-OpenOrca-GPTQ')
     print('✓ Tokenizer downloaded')
     model = AutoModelForCausalLM.from_pretrained(
-        'teknium/OpenHermes-2.5-Mistral-7B',
-        torch_dtype='auto',
-        low_cpu_mem_usage=True
+        'TheBloke/Mistral-7B-OpenOrca-GPTQ',
+        device_map='auto',
+        trust_remote_code=False,
+        revision='gptq-4bit-32g-actorder_True'
     )
-    print('✓ Model downloaded successfully!')
+    print('✓ GPTQ Model downloaded successfully!')
 except Exception as e:
     print(f'Error: {e}')
     exit(1)

@@ -89,15 +89,15 @@ def load_model():
         # Fallback to transformers
         from transformers import AutoTokenizer, AutoModelForCausalLM
         
-        model_name = "teknium/OpenHermes-2.5-Mistral-7B"
+        model_name = "TheBloke/Mistral-7B-OpenOrca-GPTQ"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         
-        # Load with 8-bit quantization
+        # Load GPTQ model
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch.float16,
             device_map="auto",
-            load_in_8bit=True
+            trust_remote_code=False,
+            revision="gptq-4bit-32g-actorder_True"
         )
         
         model_ready = True
@@ -113,7 +113,7 @@ def load_model():
 def health():
     return jsonify({
         "status": "ready" if model_ready else "loading",
-        "model": "Mistral-7B"
+        "model": "Mistral-7B-OpenOrca-GPTQ"
     })
 
 @app.route("/generate", methods=["POST"])
@@ -164,7 +164,7 @@ def generate():
         return jsonify({
             "text": response_text,
             "tokens_generated": tokens_generated,
-            "model": "Mistral-7B"
+            "model": "Mistral-7B-OpenOrca-GPTQ"
         })
         
     except Exception as e:

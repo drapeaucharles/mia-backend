@@ -75,6 +75,7 @@ echo -e "\n${YELLOW}Installing AI packages...${NC}"
 pip install transformers accelerate sentencepiece protobuf
 pip install requests psutil gpustat py-cpuinfo
 pip install flask waitress
+pip install auto-gptq optimum
 
 # Create unified miner with embedded server
 cat > "$INSTALL_DIR/mia_miner_unified.py" << 'EOF'
@@ -120,17 +121,17 @@ class ModelServer:
         global model, tokenizer
         
         logger.info("Loading AI model...")
-        model_name = "teknium/OpenHermes-2.5-Mistral-7B"
+        model_name = "TheBloke/Mistral-7B-OpenOrca-GPTQ"
         
         try:
             tokenizer = AutoTokenizer.from_pretrained(model_name)
             
-            # Load model with 8-bit quantization for lower VRAM usage
+            # Load GPTQ model for lower VRAM usage
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                torch_dtype=torch.float16,
                 device_map="auto",
-                load_in_8bit=True
+                trust_remote_code=False,
+                revision="gptq-4bit-32g-actorder_True"
             )
             
             self.model_loaded = True
@@ -155,7 +156,7 @@ class ModelServer:
 def health():
     return jsonify({
         "status": "ready" if model is not None else "loading",
-        "model": "OpenHermes-2.5-Mistral-7B"
+        "model": "Mistral-7B-OpenOrca-GPTQ"
     })
 
 @app.route("/generate", methods=["POST"])
@@ -197,7 +198,7 @@ def generate():
         return jsonify({
             "text": response,
             "tokens_generated": tokens_generated,
-            "model": "OpenHermes-2.5-Mistral-7B"
+            "model": "Mistral-7B-OpenOrca-GPTQ"
         })
         
     except Exception as e:
@@ -486,27 +487,28 @@ WantedBy=multi-user.target
 EOF
 
 # Download model
-echo -e "\n${YELLOW}Downloading AI model (this takes 10-15 minutes)...${NC}"
+echo -e "\n${YELLOW}Downloading GPTQ model (this takes 5-10 minutes)...${NC}"
 cd "$INSTALL_DIR"
 source venv/bin/activate
 
 python3 -c "
-print('Downloading OpenHermes-2.5-Mistral-7B...')
+print('Downloading Mistral-7B-OpenOrca-GPTQ...')
 try:
     from transformers import AutoTokenizer, AutoModelForCausalLM
     import torch
     
     # Pre-download tokenizer
-    tokenizer = AutoTokenizer.from_pretrained('teknium/OpenHermes-2.5-Mistral-7B')
+    tokenizer = AutoTokenizer.from_pretrained('TheBloke/Mistral-7B-OpenOrca-GPTQ')
     print('✓ Tokenizer downloaded')
     
-    # Pre-download model
+    # Pre-download GPTQ model
     model = AutoModelForCausalLM.from_pretrained(
-        'teknium/OpenHermes-2.5-Mistral-7B',
-        torch_dtype=torch.float16,
-        low_cpu_mem_usage=True
+        'TheBloke/Mistral-7B-OpenOrca-GPTQ',
+        device_map='auto',
+        trust_remote_code=False,
+        revision='gptq-4bit-32g-actorder_True'
     )
-    print('✓ Model downloaded successfully!')
+    print('✓ GPTQ Model downloaded successfully!')
     
     # Test CUDA
     print(f'CUDA available: {torch.cuda.is_available()}')
