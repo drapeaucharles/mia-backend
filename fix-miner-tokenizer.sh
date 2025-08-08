@@ -1,84 +1,42 @@
 #!/bin/bash
 
-# MIA GPU Miner Installer - No SystemD Version (for Docker/WSL/Containers)
-# One-line: bash <(curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-no-systemd.sh)
+# Fix script for MIA miners - Corrects tokenizer and prompt format issues
+# Run this on existing installations to fix the model behavior
 
-set -e
+echo "Fixing MIA miner tokenizer and prompt format..."
 
-# Colors
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-echo -e "${GREEN}"
-echo "███╗   ███╗██╗ █████╗     ███╗   ███╗██╗███╗   ██╗███████╗██████╗ "
-echo "████╗ ████║██║██╔══██╗    ████╗ ████║██║████╗  ██║██╔════╝██╔══██╗"
-echo "██╔████╔██║██║███████║    ██╔████╔██║██║██╔██╗ ██║█████╗  ██████╔╝"
-echo "██║╚██╔╝██║██║██╔══██║    ██║╚██╔╝██║██║██║╚██╗██║██╔══╝  ██╔══██╗"
-echo "██║ ╚═╝ ██║██║██║  ██║    ██║ ╚═╝ ██║██║██║ ╚████║███████╗██║  ██║"
-echo "╚═╝     ╚═╝╚═╝╚═╝  ╚═╝    ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝"
-echo -e "${NC}"
-echo "GPU Miner Setup - No SystemD Version"
-echo "===================================="
-
-# Check NVIDIA GPU
-if ! command -v nvidia-smi &> /dev/null; then
-    echo -e "${RED}Error: NVIDIA GPU required${NC}"
+# Detect installation directory
+if [ -d "/opt/mia-gpu-miner" ]; then
+    INSTALL_DIR="/opt/mia-gpu-miner"
+    echo "Found installation at /opt/mia-gpu-miner"
+elif [ -d "$HOME/mia-gpu-miner" ]; then
+    INSTALL_DIR="$HOME/mia-gpu-miner"
+    echo "Found installation at ~/mia-gpu-miner"
+else
+    echo "Error: No miner installation found"
     exit 1
 fi
 
-# Get GPU info
-GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -n1)
-GPU_NAME=$(echo $GPU_INFO | cut -d',' -f1 | xargs)
-GPU_MEMORY=$(echo $GPU_INFO | cut -d',' -f2 | xargs)
-GPU_MEMORY_MB=$(echo $GPU_MEMORY | grep -o '[0-9]*' | head -n1)
-
-echo -e "${GREEN}GPU: $GPU_NAME ($GPU_MEMORY)${NC}"
-
-if [ "$GPU_MEMORY_MB" -lt 8000 ]; then
-    echo -e "${RED}Error: Minimum 8GB VRAM required${NC}"
-    exit 1
-fi
-
-# Setup directories
-INSTALL_DIR="$HOME/mia-gpu-miner"
-mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Install system dependencies if we have sudo
-if command -v sudo &> /dev/null; then
-    echo -e "\n${YELLOW}Installing system dependencies...${NC}"
-    sudo apt-get update -qq 2>/dev/null || true
-    sudo apt-get install -y -qq python3 python3-venv python3-pip git curl wget build-essential 2>/dev/null || true
-else
-    echo -e "\n${YELLOW}No sudo access, assuming dependencies are installed${NC}"
-fi
+# Stop existing services
+echo "Stopping existing services..."
+sudo systemctl stop mia-miner 2>/dev/null || true
+sudo systemctl stop mia-gpu-miner 2>/dev/null || true
+pkill -f "mia_miner_unified.py" 2>/dev/null || true
 
-# Create venv
-echo -e "\n${YELLOW}Setting up Python environment...${NC}"
-python3 -m venv venv
+# Activate venv
 source venv/bin/activate
 
-# Upgrade pip
-pip install --upgrade pip wheel setuptools
+# Install additional dependencies
+echo "Installing additional dependencies..."
+pip install --upgrade transformers accelerate auto-gptq optimum
 
-# Install PyTorch
-echo -e "\n${YELLOW}Installing PyTorch...${NC}"
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# Install requirements
-echo -e "\n${YELLOW}Installing inference packages...${NC}"
-pip install transformers accelerate sentencepiece protobuf
-pip install requests psutil gpustat py-cpuinfo
-pip install flask waitress
-pip install auto-gptq optimum
-
-# Create unified miner script (same as before)
-cat > "$INSTALL_DIR/mia_miner_unified.py" << 'EOF'
+# Create fixed unified miner
+cat > "$INSTALL_DIR/mia_miner_unified_fixed.py" << 'EOF'
 #!/usr/bin/env python3
 """
-MIA Unified GPU Miner - Model Server and Client in One
+MIA Unified GPU Miner - Fixed Version with Proper Tokenizer and ChatML Format
 """
 import os
 import sys
@@ -114,30 +72,33 @@ class ModelServer:
         self.model_loaded = False
     
     def load_model(self):
-        """Load the AI model"""
+        """Load the AI model with proper tokenizer"""
         global model, tokenizer
         
-        logger.info("Loading AI model...")
-        # IMPORTANT: Use the original model's tokenizer, not the GPTQ one
-        tokenizer_name = "Open-Orca/Mistral-7B-OpenOrca"
-        model_name = "TheBloke/Mistral-7B-OpenOrca-GPTQ"
+        logger.info("Loading AI model with proper configuration...")
         
         try:
+            # IMPORTANT: Use the original model's tokenizer, not the GPTQ one
+            tokenizer_name = "Open-Orca/Mistral-7B-OpenOrca"
+            model_name = "TheBloke/Mistral-7B-OpenOrca-GPTQ"
+            
+            logger.info(f"Loading tokenizer from {tokenizer_name}")
             tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+            
             # Set pad token if not set
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
             
-            # Load GPTQ model for lower VRAM usage
+            logger.info(f"Loading GPTQ model from {model_name}")
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 device_map="auto",
-                trust_remote_code=True,
-                revision="gptq-4bit-128g-actorder_True"
+                trust_remote_code=True,  # Changed to True as per checklist
+                revision="gptq-4bit-128g-actorder_True"  # Using 128g version for better quality
             )
             
             self.model_loaded = True
-            logger.info("✓ Model loaded successfully!")
+            logger.info("✓ Model and tokenizer loaded successfully!")
             return True
             
         except Exception as e:
@@ -152,13 +113,13 @@ class ModelServer:
         
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
-        time.sleep(5)  # Give server time to start
+        time.sleep(5)
 
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
         "status": "ready" if model is not None else "loading",
-        "model": "Mistral-7B-OpenOrca-GPTQ"
+        "model": "Mistral-7B-OpenOrca-GPTQ-Fixed"
     })
 
 @app.route("/generate", methods=["POST"])
@@ -169,10 +130,12 @@ def generate():
     try:
         data = request.json
         prompt = data.get("prompt", "")
-        max_tokens = data.get("max_tokens", 500)
+        max_tokens = data.get("max_tokens", 100)  # Reduced default for testing
         
         # Use proper ChatML format
         system_message = "You are MIA, a helpful AI assistant. Please provide helpful, accurate, and friendly responses."
+        
+        # Create the proper ChatML formatted prompt
         formatted_prompt = f"""<|im_start|>system
 {system_message}<|im_end|>
 <|im_start|>user
@@ -180,20 +143,27 @@ def generate():
 <|im_start|>assistant
 """
         
-        # Tokenize
-        inputs = tokenizer(formatted_prompt, return_tensors="pt", truncation=True).to(model.device)
+        logger.info(f"Formatted prompt: {formatted_prompt[:200]}...")
         
-        # Generate response
+        # Tokenize with proper settings
+        inputs = tokenizer(
+            formatted_prompt, 
+            return_tensors="pt",
+            truncation=True,
+            max_length=2048
+        ).to(model.device)
+        
+        # Generate with proper parameters
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=max_tokens,
                 temperature=0.7,
-                top_p=0.9,
+                top_p=0.9,  # Changed from 0.95 to 0.9
                 do_sample=True,
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                repetition_penalty=1.1
+                repetition_penalty=1.1  # Add to reduce repetition
             )
         
         # Decode response
@@ -204,15 +174,18 @@ def generate():
             response = full_response.split("<|im_start|>assistant")[-1].strip()
         else:
             response = full_response[len(formatted_prompt):].strip()
+        
         # Clean up any remaining tokens
         response = response.replace("<|im_end|>", "").strip()
         
         tokens_generated = len(outputs[0]) - len(inputs.input_ids[0])
         
+        logger.info(f"Generated response: {response[:100]}...")
+        
         return jsonify({
             "text": response,
             "tokens_generated": tokens_generated,
-            "model": "Mistral-7B-OpenOrca-GPTQ"
+            "model": "Mistral-7B-OpenOrca-GPTQ-Fixed"
         })
         
     except Exception as e:
@@ -225,7 +198,7 @@ class MinerClient:
     def __init__(self, model_server):
         self.backend_url = "https://mia-backend-production.up.railway.app"
         self.local_url = "http://localhost:8000"
-        self.miner_name = f"gpu-miner-{socket.gethostname()}"
+        self.miner_name = f"gpu-miner-{socket.gethostname()}-fixed"
         self.miner_id = None
         self.model_server = model_server
     
@@ -263,6 +236,26 @@ class MinerClient:
             time.sleep(5)
         
         return False
+    
+    def test_generation(self):
+        """Test the generation with a simple prompt"""
+        logger.info("Testing generation with 'Hello'...")
+        try:
+            r = requests.post(
+                f"{self.local_url}/generate",
+                json={"prompt": "Hello", "max_tokens": 50},
+                timeout=30
+            )
+            if r.status_code == 200:
+                result = r.json()
+                logger.info(f"Test response: {result.get('text', 'No response')}")
+                return True
+            else:
+                logger.error(f"Test failed: {r.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Test error: {e}")
+            return False
     
     def register(self):
         """Register with MIA backend"""
@@ -420,7 +413,7 @@ class MinerClient:
 def main():
     """Main entry point"""
     logger.info("=" * 60)
-    logger.info("MIA Unified GPU Miner Starting")
+    logger.info("MIA Unified GPU Miner - Fixed Version")
     logger.info("=" * 60)
     
     # Initialize model server
@@ -441,6 +434,11 @@ def main():
     if not miner.wait_for_model():
         logger.error("Model server failed to start")
         sys.exit(1)
+    
+    # Test generation
+    logger.info("Testing model generation...")
+    if not miner.test_generation():
+        logger.warning("Generation test failed, but continuing...")
     
     # Register with backend
     attempts = 0
@@ -463,63 +461,55 @@ if __name__ == "__main__":
     main()
 EOF
 
-chmod +x "$INSTALL_DIR/mia_miner_unified.py"
+chmod +x "$INSTALL_DIR/mia_miner_unified_fixed.py"
 
-# Create run script
-cat > "$INSTALL_DIR/run_miner.sh" << 'EOF'
+# Create new start script
+cat > "$INSTALL_DIR/start_fixed.sh" << 'EOF'
 #!/bin/bash
-cd ~/mia-gpu-miner
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
 source venv/bin/activate
-exec python mia_miner_unified.py
+exec python mia_miner_unified_fixed.py
 EOF
 
-chmod +x "$INSTALL_DIR/run_miner.sh"
+chmod +x "$INSTALL_DIR/start_fixed.sh"
 
-# Download model
-echo -e "\n${YELLOW}Downloading GPTQ model (this may take 5-10 minutes)...${NC}"
-cd "$INSTALL_DIR"
-source venv/bin/activate
+# Update systemd service if it exists
+if [ -f "/etc/systemd/system/mia-miner.service" ]; then
+    echo "Updating systemd service..."
+    sudo tee /etc/systemd/system/mia-miner.service > /dev/null << EOF
+[Unit]
+Description=MIA Unified GPU Miner - Fixed
+After=network.target
 
-python3 -c "
-print('Downloading Mistral-7B-OpenOrca models...')
-try:
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    # Download proper tokenizer
-    print('Downloading tokenizer from Open-Orca/Mistral-7B-OpenOrca...')
-    tokenizer = AutoTokenizer.from_pretrained('Open-Orca/Mistral-7B-OpenOrca')
-    print('✓ Tokenizer downloaded')
-    # Download GPTQ model
-    print('Downloading GPTQ model from TheBloke/Mistral-7B-OpenOrca-GPTQ...')
-    model = AutoModelForCausalLM.from_pretrained(
-        'TheBloke/Mistral-7B-OpenOrca-GPTQ',
-        device_map='auto',
-        trust_remote_code=True,
-        revision='gptq-4bit-128g-actorder_True'
-    )
-    print('✓ GPTQ Model downloaded successfully!')
-except Exception as e:
-    print(f'Error: {e}')
-    exit(1)
-"
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$INSTALL_DIR
+Environment="PATH=$INSTALL_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=$INSTALL_DIR/start_fixed.sh
+Restart=always
+RestartSec=30
 
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Model download failed${NC}"
-    exit 1
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl restart mia-miner
+    echo "✓ Systemd service updated and restarted"
+else
+    echo ""
+    echo "To run the fixed miner:"
+    echo "  $INSTALL_DIR/start_fixed.sh"
 fi
 
-echo -e "\n${GREEN}✓ Installation complete!${NC}"
 echo ""
-echo "To run the miner:"
+echo "✓ Miner has been fixed with:"
+echo "  - Proper tokenizer from Open-Orca/Mistral-7B-OpenOrca"
+echo "  - Correct ChatML prompt format"
+echo "  - Better quantization (4bit-128g)"
+echo "  - Improved generation parameters"
+echo "  - trust_remote_code=True"
 echo ""
-echo "  Option 1 - Direct run:"
-echo "    cd ~/mia-gpu-miner && ./run_miner.sh"
-echo ""
-echo "  Option 2 - Background with screen:"
-echo "    screen -dmS mia-miner ~/mia-gpu-miner/run_miner.sh"
-echo "    screen -r mia-miner  # to view logs"
-echo ""
-echo "  Option 3 - Background with nohup:"
-echo "    cd ~/mia-gpu-miner"
-echo "    nohup ./run_miner.sh > miner.log 2>&1 &"
-echo ""
-echo "Your miner is ready to start!"
+echo "The model should now respond naturally to messages like 'Hello'!"

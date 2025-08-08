@@ -100,14 +100,20 @@ def load_model():
     global model, tokenizer
     logger.info("Loading model...")
     
+    # IMPORTANT: Use the original model's tokenizer, not the GPTQ one
+    tokenizer_name = "Open-Orca/Mistral-7B-OpenOrca"
     model_name = "TheBloke/Mistral-7B-OpenOrca-GPTQ"
     
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    # Set pad token if not set
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         device_map="auto",
-        trust_remote_code=False,
-        revision="gptq-4bit-32g-actorder_True"
+        trust_remote_code=True,
+        revision="gptq-4bit-128g-actorder_True"
     )
     
     logger.info("Model loaded successfully!")
@@ -123,11 +129,17 @@ def generate():
         prompt = data.get("prompt", "")
         max_tokens = data.get("max_tokens", 500)
         
-        # Format prompt
-        formatted_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+        # Use proper ChatML format
+        system_message = "You are MIA, a helpful AI assistant. Please provide helpful, accurate, and friendly responses."
+        formatted_prompt = f"""<|im_start|>system
+{system_message}<|im_end|>
+<|im_start|>user
+{prompt}<|im_end|>
+<|im_start|>assistant
+"""
         
-        # Tokenize
-        inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
+        # Tokenize with proper settings
+        inputs = tokenizer(formatted_prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
         
         # Generate
         with torch.no_grad():
@@ -135,13 +147,22 @@ def generate():
                 **inputs,
                 max_new_tokens=max_tokens,
                 temperature=0.7,
+                top_p=0.9,
                 do_sample=True,
-                top_p=0.95
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                repetition_penalty=1.1
             )
         
-        # Decode
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        response = response.split("<|im_start|>assistant\n")[-1]
+        # Decode response
+        full_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        # Extract only the assistant's response
+        if "<|im_start|>assistant" in full_response:
+            response = full_response.split("<|im_start|>assistant")[-1].strip()
+        else:
+            response = full_response[len(formatted_prompt):].strip()
+        # Clean up any remaining tokens
+        response = response.replace("<|im_end|>", "").strip()
         
         return jsonify({
             "text": response,
@@ -389,16 +410,20 @@ cd "$INSTALL_DIR"
 source venv/bin/activate
 
 python3 -c "
-print('Downloading Mistral-7B-OpenOrca-GPTQ...')
+print('Downloading Mistral-7B-OpenOrca models...')
 try:
     from transformers import AutoTokenizer, AutoModelForCausalLM
-    tokenizer = AutoTokenizer.from_pretrained('TheBloke/Mistral-7B-OpenOrca-GPTQ')
+    # Download proper tokenizer
+    print('Downloading tokenizer from Open-Orca/Mistral-7B-OpenOrca...')
+    tokenizer = AutoTokenizer.from_pretrained('Open-Orca/Mistral-7B-OpenOrca')
     print('✓ Tokenizer downloaded')
+    # Download GPTQ model
+    print('Downloading GPTQ model from TheBloke/Mistral-7B-OpenOrca-GPTQ...')
     model = AutoModelForCausalLM.from_pretrained(
         'TheBloke/Mistral-7B-OpenOrca-GPTQ',
         device_map='auto',
-        trust_remote_code=False,
-        revision='gptq-4bit-32g-actorder_True'
+        trust_remote_code=True,
+        revision='gptq-4bit-128g-actorder_True'
     )
     print('✓ GPTQ Model downloaded successfully!')
 except Exception as e:
