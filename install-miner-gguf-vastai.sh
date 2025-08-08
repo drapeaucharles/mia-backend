@@ -39,7 +39,7 @@ pip install --upgrade pip
 
 # Install llama-cpp-python with CUDA support
 echo -e "${YELLOW}Installing llama-cpp-python with GPU support...${NC}"
-CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
 
 # Install other dependencies
 echo -e "${YELLOW}Installing other dependencies...${NC}"
