@@ -133,7 +133,7 @@ class ModelServer:
                 model_name,
                 device_map="auto",
                 trust_remote_code=True,
-                revision="gptq-4bit-128g-actorder_True"
+                revision="main"
             )
             
             self.model_loaded = True
@@ -494,7 +494,7 @@ try:
         'TheBloke/Mistral-7B-OpenOrca-GPTQ',
         device_map='auto',
         trust_remote_code=True,
-        revision='gptq-4bit-128g-actorder_True'
+        revision='main'
     )
     print('✓ GPTQ Model downloaded successfully!')
 except Exception as e:

@@ -94,7 +94,7 @@ class ModelServer:
                 model_name,
                 device_map="auto",
                 trust_remote_code=True,  # Changed to True as per checklist
-                revision="gptq-4bit-128g-actorder_True"  # Using 128g version for better quality
+                revision="main"  # main branch is 4-bit-128g-actorder
             )
             
             self.model_loaded = True
@@ -508,7 +508,7 @@ echo ""
 echo "✓ Miner has been fixed with:"
 echo "  - Proper tokenizer from Open-Orca/Mistral-7B-OpenOrca"
 echo "  - Correct ChatML prompt format"
-echo "  - Better quantization (4bit-128g)"
+echo "  - Better quantization (4bit-128g from main branch)"
 echo "  - Improved generation parameters"
 echo "  - trust_remote_code=True"
 echo ""
