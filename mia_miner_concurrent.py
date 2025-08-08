@@ -384,8 +384,17 @@ def generate():
         max_tokens = data.get("max_tokens", 500)
         request_id = data.get("request_id", "unknown")
         
-        # ChatML format
-        system_message = "You are MIA, a helpful AI assistant. IMPORTANT: Always respond in the SAME LANGUAGE as the user's message. If the user writes in English, respond in English. If they write in Spanish, respond in Spanish. If they write in French, respond in French. Match the user's language exactly."
+        # ChatML format - Detect user language
+        # Simple language detection
+        user_lang = "English"  # Default
+        if any(word in prompt.lower() for word in ["hola", "cómo", "qué", "por favor", "gracias", "está", "estás"]):
+            user_lang = "Spanish"
+        elif any(word in prompt.lower() for word in ["bonjour", "comment", "merci", "s'il vous plaît", "ça va"]):
+            user_lang = "French"
+        elif any(word in prompt.lower() for word in ["你好", "谢谢", "请", "吗", "什么"]):
+            user_lang = "Chinese"
+        
+        system_message = f"You are MIA, a helpful AI assistant. You MUST respond ONLY in {user_lang}. This is extremely important - the user wrote in {user_lang}, so you must respond in {user_lang}. Do not use any other language."
         formatted_prompt = f"""<|im_start|>system
 {system_message}<|im_end|>
 <|im_start|>user
