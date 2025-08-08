@@ -47,15 +47,132 @@ The system uses distributed GPU miners running Mistral 7B locally:
 6. **Status Tracking**: Real-time monitoring of miner availability
 
 ### Miner Requirements
-- NVIDIA GPU with 16GB+ VRAM (RTX 3090, RTX 4090, A5000, etc.)
-- Ubuntu Linux with CUDA support
-- 50GB storage for model files
+- NVIDIA GPU with 8GB+ VRAM (RTX 3070, 3080, 3090, 4090, etc.)
+- Ubuntu/Debian Linux with CUDA 11.7+
+- 20-30GB storage (15GB minimum)
 - Stable internet connection
+- Python 3.8+
 
-### One-Line Miner Setup
+## 🚀 GPU Miner Installation - Choose Your Setup
+
+### Option 1: High Performance (60+ tokens/second) ⭐ RECOMMENDED
+**For:** Modern GPUs (8GB+ VRAM), Vast.ai, VPS, dedicated servers
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner.sh)
+curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-vllm-awq-final.sh | bash
 ```
+- ✅ **Speed:** 60+ tokens/second
+- ✅ **Backend:** vLLM with AWQ quantization
+- ✅ **Model:** Mistral-7B-OpenOrca-AWQ
+- ✅ **Best for:** Production mining, maximum earnings
+
+### Option 2: Low VRAM GPUs (20-40 tokens/second)
+**For:** GPUs with 4-6GB VRAM, older hardware
+```bash
+curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-gguf-vastai.sh | bash
+```
+- ✅ **Speed:** 20-40 tokens/second
+- ✅ **Backend:** llama.cpp with GGUF format
+- ✅ **Model:** Mistral-7B-OpenOrca-GGUF (Q4_K_M)
+- ✅ **Best for:** RTX 2060, GTX 1660 Ti, etc.
+
+### Option 3: Maximum Compatibility (10-20 tokens/second)
+**For:** Compatibility issues, older systems
+```bash
+curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-transformers-vastai.sh | bash
+```
+- ✅ **Speed:** 10-20 tokens/second
+- ✅ **Backend:** Transformers with 8-bit quantization
+- ✅ **Model:** Mistral-7B with bitsandbytes
+- ✅ **Best for:** When other options fail
+
+### Option 4: Python 3.8 Legacy Systems (3-15 tokens/second)
+**For:** Ubuntu 18.04, older Vast.ai images with Python 3.8
+```bash
+curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-py38.sh | bash
+```
+- ⚠️ **Speed:** 3-15 tokens/second
+- ⚠️ **Backend:** Compatible versions for Python 3.8
+- ⚠️ **Best for:** Legacy systems only
+
+## 📊 Performance Comparison
+
+| Setup | Speed | VRAM Required | Earnings Potential |
+|-------|-------|---------------|-------------------|
+| vLLM-AWQ | 60+ tok/s | 8GB+ | 💰💰💰💰💰 Maximum |
+| GGUF/llama.cpp | 20-40 tok/s | 4-6GB | 💰💰💰 Good |
+| Transformers 8-bit | 10-20 tok/s | 6GB+ | 💰💰 Fair |
+| Python 3.8 | 3-15 tok/s | 6GB+ | 💰 Minimum |
+
+## 🎯 Special Setups
+
+### Vast.ai with /data Volume
+If your Vast.ai instance has a `/data` volume:
+```bash
+# The vLLM-AWQ installer automatically detects and uses /data
+curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-vllm-awq-final.sh | bash
+```
+All files will be stored in `/data` to preserve disk space.
+
+### Custom Installation Directory
+```bash
+# Download installer
+wget https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-vllm-awq-final.sh
+# Edit INSTALL_DIR in the script
+nano install-miner-vllm-awq-final.sh
+# Run
+bash install-miner-vllm-awq-final.sh
+```
+
+## 🏃 After Installation - Managing Your Miner
+
+### Starting the Miner
+
+**For Vast.ai with /data:**
+```bash
+cd /data/mia-gpu-miner
+./start_miner.sh
+```
+
+**For standard installations:**
+```bash
+cd ~/mia-gpu-miner
+./start_miner.sh
+```
+
+### Monitoring Performance
+```bash
+# View real-time logs
+tail -f /data/miner.log  # or ~/mia-gpu-miner/miner.log
+
+# Check tokens/second
+tail -f /data/miner.log | grep "tok/s"
+
+# Check GPU usage
+nvidia-smi -l 1
+```
+
+### Stopping the Miner
+```bash
+cd /data/mia-gpu-miner  # or ~/mia-gpu-miner
+./stop_miner.sh
+```
+
+### Troubleshooting
+
+**Slow speed (< 30 tok/s)?**
+- You're probably not using vLLM-AWQ. Reinstall with Option 1.
+- Check GPU: `nvidia-smi`
+- Verify CUDA: `python3 -c "import torch; print(torch.cuda.is_available())"`
+
+**Installation errors?**
+- Python 3.8? Use Option 4
+- Low VRAM? Use Option 2  
+- Disk space issues? Ensure 20GB+ free
+
+**Can't connect to backend?**
+- Check internet: `ping google.com`
+- Check logs: `tail -50 /data/miner.log`
+- Firewall may block outgoing connections
 
 ## Project Structure
 
