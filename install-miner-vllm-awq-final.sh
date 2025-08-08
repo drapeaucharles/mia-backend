@@ -181,7 +181,7 @@ def generate():
         max_tokens = data.get("max_tokens", 500)
         
         # ChatML format
-        system_message = "You are MIA, a helpful AI assistant. Please provide helpful, accurate, and friendly responses in multiple languages."
+        system_message = "You are MIA, a helpful AI assistant. IMPORTANT: Always respond in the SAME LANGUAGE as the user's message. If the user writes in English, respond in English. If they write in Spanish, respond in Spanish. If they write in French, respond in French. Match the user's language exactly."
         formatted_prompt = f"""<|im_start|>system
 {system_message}<|im_end|>
 <|im_start|>user
