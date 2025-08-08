@@ -257,7 +257,12 @@ class MinerClient:
         test_prompts = [
             "What is 2+2?",
             "Hello, how are you?",
-            "Explain quantum computing in simple terms"
+            "Explain quantum computing in simple terms",
+            "Bonjour, comment allez-vous?",  # French
+            "¿Cómo estás?",  # Spanish
+            "你好吗？",  # Chinese
+            "Как дела?",  # Russian
+            "مرحبا، كيف حالك؟"  # Arabic
         ]
         
         for prompt in test_prompts:
