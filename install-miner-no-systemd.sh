@@ -196,16 +196,13 @@ def generate():
                 repetition_penalty=1.1
             )
         
-        # Decode response
-        full_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        # Decode the generated tokens only (not including the input)
+        generated_ids = outputs[0][inputs.input_ids.shape[-1]:]
+        response = tokenizer.decode(generated_ids, skip_special_tokens=True)
         
-        # Extract only the assistant's response
-        if "<|im_start|>assistant" in full_response:
-            response = full_response.split("<|im_start|>assistant")[-1].strip()
-        else:
-            response = full_response[len(formatted_prompt):].strip()
-        # Clean up any remaining tokens
+        # Clean up any remaining special tokens that might have slipped through
         response = response.replace("<|im_end|>", "").strip()
+        response = response.replace("<|im_start|>", "").strip()
         
         tokens_generated = len(outputs[0]) - len(inputs.input_ids[0])
         
