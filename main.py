@@ -539,7 +539,16 @@ async def process_idle_job_with_runpod(job_id: int, db=Depends(get_db)):
 
 @app.get("/health")
 async def health_check():
-    """Detailed health check"""
+    """Simple health check that always returns OK"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "mia-backend"
+    }
+
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """Detailed health check with dependency status"""
     health_status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat()
@@ -555,7 +564,7 @@ async def health_check():
     
     # Check database connection (optional - don't fail if DB is down)
     try:
-        from sqlalchemy import text, func
+        from sqlalchemy import text
         db = next(get_db())
         db.execute(text("SELECT 1"))
         health_status["database"] = True
@@ -571,8 +580,6 @@ async def health_check():
         health_status["runpod"] = False
         health_status["runpod_error"] = str(e)
     
-    # Return 200 OK even if some services are down
-    # This allows the app to start even without all dependencies
     return health_status
 
 @app.post("/report_golem_job", response_model=GolemJobResponse)
