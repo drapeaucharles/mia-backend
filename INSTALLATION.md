@@ -8,12 +8,18 @@ Install and run the MIA GPU miner with a single command:
 curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/universal-installer.sh | bash
 ```
 
+**Note:** On fresh VPS, install pip first:
+```bash
+apt update && apt install -y python3-pip
+```
+
 ## What This Installs
 
 - **Model**: Qwen2.5-7B-Instruct (4-bit quantized)
-- **Performance**: 28-40 tokens/second on RTX 3090
+- **Performance**: 25-30 tokens/second
+- **Storage**: ~6GB disk space
 - **Backend**: Transformers with BitsAndBytes quantization
-- **Requirements**: 8GB+ VRAM GPU
+- **Memory**: Uses 8GB+ VRAM
 
 ## System Requirements
 

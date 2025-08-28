@@ -62,11 +62,16 @@ curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/un
 ```
 
 - ✅ **Model:** Qwen2.5-7B-Instruct (Latest multilingual model)
-- ✅ **Speed:** 28-40 tokens/second on RTX 3090
-- ✅ **Backend:** Transformers with 4-bit quantization
+- ✅ **Speed:** 25-30 tokens/second
+- ✅ **Storage:** ~6GB (4-bit quantization)
+- ✅ **Backend:** Transformers with BitsAndBytes
 - ✅ **Requirements:** 8GB+ VRAM GPU
 - ✅ **Auto-registers** with MIA backend
-- ✅ **Starts earning** immediately
+
+**Note:** If pip is missing on fresh VPS, run first:
+```bash
+apt update && apt install -y python3-pip
+```
 
 For detailed installation instructions, see [INSTALLATION.md](INSTALLATION.md)
 
