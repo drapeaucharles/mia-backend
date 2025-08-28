@@ -53,46 +53,22 @@ The system uses distributed GPU miners running Mistral 7B locally:
 - Stable internet connection
 - Python 3.8+
 
-## 🚀 GPU Miner Installation - Choose Your Setup
+## 🚀 GPU Miner Installation
 
-### Option 1: High Performance (60+ tokens/second) ⭐ RECOMMENDED
-**For:** Modern GPUs (8GB+ VRAM), Vast.ai, VPS, dedicated servers
-```bash
-curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-vllm-awq-final.sh | bash
-```
-- ✅ **Speed:** 60+ tokens/second
-- ✅ **Backend:** vLLM with AWQ quantization
-- ✅ **Model:** Mistral-7B-OpenOrca-AWQ
-- ✅ **Best for:** Production mining, maximum earnings
+Install the MIA GPU miner with one command:
 
-### Option 2: Low VRAM GPUs (20-40 tokens/second)
-**For:** GPUs with 4-6GB VRAM, older hardware
 ```bash
-curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-gguf-vastai.sh | bash
+curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/universal-installer.sh | bash
 ```
-- ✅ **Speed:** 20-40 tokens/second
-- ✅ **Backend:** llama.cpp with GGUF format
-- ✅ **Model:** Mistral-7B-OpenOrca-GGUF (Q4_K_M)
-- ✅ **Best for:** RTX 2060, GTX 1660 Ti, etc.
 
-### Option 3: Maximum Compatibility (10-20 tokens/second)
-**For:** Compatibility issues, older systems
-```bash
-curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-transformers-vastai.sh | bash
-```
-- ✅ **Speed:** 10-20 tokens/second
-- ✅ **Backend:** Transformers with 8-bit quantization
-- ✅ **Model:** Mistral-7B with bitsandbytes
-- ✅ **Best for:** When other options fail
+- ✅ **Model:** Qwen2.5-7B-Instruct (Latest multilingual model)
+- ✅ **Speed:** 28-40 tokens/second on RTX 3090
+- ✅ **Backend:** Transformers with 4-bit quantization
+- ✅ **Requirements:** 8GB+ VRAM GPU
+- ✅ **Auto-registers** with MIA backend
+- ✅ **Starts earning** immediately
 
-### Option 4: Python 3.8 Legacy Systems (3-15 tokens/second)
-**For:** Ubuntu 18.04, older Vast.ai images with Python 3.8
-```bash
-curl -s https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-miner-py38.sh | bash
-```
-- ⚠️ **Speed:** 3-15 tokens/second
-- ⚠️ **Backend:** Compatible versions for Python 3.8
-- ⚠️ **Best for:** Legacy systems only
+For detailed installation instructions, see [INSTALLATION.md](INSTALLATION.md)
 
 ## 📊 Performance Comparison
 
