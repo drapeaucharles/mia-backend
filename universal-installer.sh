@@ -113,14 +113,18 @@ def generate(prompt, max_tokens=150, temperature=0.7):
     text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
     
+    # Store input length
+    input_length = len(inputs['input_ids'][0])
+    
     start = time.time()
     outputs = model.generate(**inputs, max_new_tokens=max_tokens, temperature=temperature, do_sample=True)
     gen_time = time.time() - start
     
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    response = response[len(text):].strip()
+    # Extract only the generated tokens
+    generated_ids = outputs[0][input_length:]
+    response = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
     
-    return response, len(outputs[0]) - len(inputs['input_ids'][0]), gen_time
+    return response, len(generated_ids), gen_time
 
 @app.route('/generate', methods=['POST'])
 def api_generate():
@@ -143,8 +147,9 @@ def worker():
         try:
             work = requests.get(f"{backend_url}/get_work?miner_id={miner_id}", timeout=30).json()
             if work and work.get('request_id'):
-                logger.info(f"Job {work['request_id']}")
+                logger.info(f"Job {work['request_id']}: {work.get('prompt', '')[:50]}...")
                 response, tokens, gen_time = generate(work.get('prompt', ''), work.get('max_tokens', 150))
+                logger.info(f"Response: {response[:50]}...")
                 
                 requests.post(f"{backend_url}/submit_result", json={
                     'miner_id': int(miner_id),

@@ -105,6 +105,9 @@ def generate_response(prompt, max_tokens=150, temperature=0.7):
     inputs = tokenizer(text, return_tensors="pt", padding=True)
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
     
+    # Store input length for proper extraction
+    input_length = inputs['input_ids'].shape[1]
+    
     start = time.time()
     with torch.no_grad():
         outputs = model.generate(
@@ -117,14 +120,11 @@ def generate_response(prompt, max_tokens=150, temperature=0.7):
         )
     gen_time = time.time() - start
     
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    # Extract assistant response
-    if "assistant" in response:
-        response = response.split("assistant")[-1].strip()
-    else:
-        response = response[len(text):].strip()
+    # Extract only the generated tokens
+    generated_tokens = outputs[0][input_length:]
+    response = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
     
-    tokens_generated = len(outputs[0]) - len(inputs['input_ids'][0])
+    tokens_generated = len(generated_tokens)
     tokens_per_second = tokens_generated / gen_time if gen_time > 0 else 0
     
     return {
@@ -191,10 +191,11 @@ def worker_loop():
                     max_tokens = work.get('max_tokens', 150)
                     temperature = work.get('temperature', 0.7)
                     
-                    logger.info(f"Processing job {request_id}")
+                    logger.info(f"Processing job {request_id}: {prompt[:50]}...")
                     
                     # Generate response
                     result = generate_response(prompt, max_tokens, temperature)
+                    logger.info(f"Generated response: {result['text'][:50]}...")
                     
                     logger.info(f"Generated {result['tokens_generated']} tokens at {result['tokens_per_second']:.1f} tok/s")
                     

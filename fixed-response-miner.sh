@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# MIA GPU Miner - Final Qwen2.5 Installer
-# Uses only the new /submit_result endpoint
+# MIA GPU Miner - Fixed Response Extraction
+# Fixes the issue where responses get cut off at the beginning
 
 set -e
 
@@ -9,11 +9,12 @@ set -e
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}╔═══════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   MIA GPU Miner - Qwen2.5 Final Setup     ║${NC}"
-echo -e "${BLUE}║   One-Line Install & Start                ║${NC}"
+echo -e "${BLUE}║   MIA GPU Miner - Fixed Response Extract   ║${NC}"
+echo -e "${BLUE}║   Fixing cut-off responses issue           ║${NC}"
 echo -e "${BLUE}╚═══════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -22,34 +23,53 @@ if ! command -v python3 &> /dev/null; then
     apt update && apt install -y python3 python3-pip python3-venv
 fi
 
+# Detect Python version
+PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+echo -e "${YELLOW}Detected Python version: $PYTHON_VERSION${NC}"
+
+# Install correct venv package
+echo -e "${YELLOW}Installing Python $PYTHON_VERSION venv...${NC}"
+apt update
+apt install -y python${PYTHON_VERSION}-venv python3-pip wget curl git build-essential || {
+    apt install -y python3-venv python3-pip wget curl git build-essential
+}
+
 # Kill any existing miners
 pkill -f miner 2>/dev/null || true
 
 # Setup directories
-INSTALL_DIR="/data/mia-final"
-VENV_DIR="/data/venv-final"
+INSTALL_DIR="/data/mia-fixed"
+VENV_DIR="/data/venv-fixed"
 
 echo -e "${YELLOW}Setting up in: $INSTALL_DIR${NC}"
-rm -rf "$INSTALL_DIR" "$VENV_DIR"  # Clean install
+rm -rf "$INSTALL_DIR" "$VENV_DIR"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 # Create virtual environment
-python3 -m venv "$VENV_DIR"
+python3 -m venv "$VENV_DIR" --system-site-packages || {
+    pip3 install virtualenv
+    virtualenv "$VENV_DIR"
+}
+
+# Activate venv
 source "$VENV_DIR/bin/activate"
 
-# Install dependencies
-echo -e "${YELLOW}Installing dependencies...${NC}"
-pip install --upgrade pip wheel
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install transformers accelerate bitsandbytes optimum
-pip install flask waitress requests aiohttp
-pip install sentencepiece protobuf
+# Ensure pip works
+python -m pip install --upgrade pip wheel setuptools
 
-# Create the final miner
+# Install PyTorch
+echo -e "${YELLOW}Installing PyTorch...${NC}"
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Install other packages
+echo -e "${YELLOW}Installing AI packages...${NC}"
+pip install transformers accelerate bitsandbytes flask waitress requests sentencepiece protobuf
+
+# Create fixed miner script
 cat > miner.py << 'EOF'
 #!/usr/bin/env python3
-"""MIA GPU Miner - Qwen2.5 with new endpoint"""
+"""MIA GPU Miner - Fixed Response Extraction"""
 import os
 os.environ["HF_HOME"] = "/data/huggingface"
 os.environ["TRANSFORMERS_CACHE"] = "/data/huggingface"
@@ -67,7 +87,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('mia-final')
+logger = logging.getLogger('mia-fixed')
 
 app = Flask(__name__)
 backend_url = os.getenv("MIA_BACKEND_URL", "https://mia-backend-production.up.railway.app")
@@ -97,11 +117,35 @@ if tokenizer.pad_token is None:
 
 logger.info("✓ Model loaded successfully!")
 
+def extract_assistant_response(full_output, prompt_tokens):
+    """Extract only the assistant's response from the full output"""
+    # Method 1: Look for assistant marker in the output
+    if "<|assistant|>" in full_output:
+        # Split by assistant marker and take everything after
+        parts = full_output.split("<|assistant|>")
+        if len(parts) > 1:
+            return parts[-1].strip()
+    
+    # Method 2: Look for common response patterns
+    if "\nassistant:" in full_output.lower():
+        parts = full_output.lower().split("\nassistant:")
+        if len(parts) > 1:
+            # Get the original case version
+            idx = full_output.lower().find("\nassistant:") + len("\nassistant:")
+            return full_output[idx:].strip()
+    
+    # Method 3: Decode only the new tokens (most reliable)
+    # This requires keeping track of input length
+    return None
+
 def generate_response(prompt, max_tokens=150, temperature=0.7):
-    """Generate response from prompt"""
+    """Generate response from prompt with fixed extraction"""
     messages = [{"role": "user", "content": prompt}]
+    
+    # Apply chat template
     text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     
+    # Tokenize input
     inputs = tokenizer(text, return_tensors="pt", padding=True)
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
     
@@ -116,16 +160,46 @@ def generate_response(prompt, max_tokens=150, temperature=0.7):
             temperature=temperature,
             do_sample=True,
             top_p=0.95,
-            repetition_penalty=1.1
+            repetition_penalty=1.1,
+            pad_token_id=tokenizer.pad_token_id
         )
     gen_time = time.time() - start
     
     # Extract only the generated tokens
     generated_tokens = outputs[0][input_length:]
+    
+    # Decode only the generated part
     response = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+    
+    # If response is still empty or starts oddly, try full decode with extraction
+    if not response or response.startswith(")") or response.startswith("$"):
+        full_output = tokenizer.decode(outputs[0], skip_special_tokens=False)
+        logger.debug(f"Full output for debugging: {repr(full_output)}")
+        
+        # Try to extract assistant response
+        extracted = extract_assistant_response(full_output, input_length)
+        if extracted:
+            response = extracted
+        else:
+            # Last resort: decode without special tokens and remove input
+            full_clean = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            if full_clean.startswith(text):
+                response = full_clean[len(text):].strip()
+            else:
+                # Find where the response likely starts
+                for marker in ["User:", "Human:", prompt[-50:], "Assistant:", "AI:"]:
+                    if marker in full_clean:
+                        idx = full_clean.rfind(marker) + len(marker)
+                        potential_response = full_clean[idx:].strip()
+                        if potential_response and not potential_response.startswith((")", "$", ".", ",")):
+                            response = potential_response
+                            break
     
     tokens_generated = len(generated_tokens)
     tokens_per_second = tokens_generated / gen_time if gen_time > 0 else 0
+    
+    logger.info(f"Generated {tokens_generated} tokens at {tokens_per_second:.1f} tok/s")
+    logger.debug(f"Response preview: {response[:100]}...")
     
     return {
         'text': response,
@@ -159,7 +233,7 @@ def worker_loop():
         try:
             resp = requests.post(
                 f"{backend_url}/register_miner",
-                json={"name": f"qwen2.5-final-{os.getpid()}"},
+                json={"name": f"qwen2.5-fixed-{os.getpid()}"},
                 timeout=10
             )
             if resp.status_code == 200:
@@ -173,9 +247,10 @@ def worker_loop():
             time.sleep(5)
     
     # Work loop
+    consecutive_errors = 0
     while True:
         try:
-            # Get work using miner_id
+            # Get work
             work_resp = requests.get(
                 f"{backend_url}/get_work?miner_id={miner_id}",
                 timeout=30
@@ -184,22 +259,22 @@ def worker_loop():
             if work_resp.status_code == 200:
                 work = work_resp.json()
                 
-                # Check if we got actual work
                 if work and work.get('request_id'):
                     request_id = work['request_id']
                     prompt = work.get('prompt', '')
                     max_tokens = work.get('max_tokens', 150)
                     temperature = work.get('temperature', 0.7)
                     
-                    logger.info(f"Processing job {request_id}: {prompt[:50]}...")
+                    logger.info(f"Processing job {request_id}")
+                    logger.debug(f"Prompt: {prompt[:100]}...")
                     
-                    # Generate response
+                    # Generate response with fixed extraction
                     result = generate_response(prompt, max_tokens, temperature)
-                    logger.info(f"Generated response: {result['text'][:50]}...")
                     
-                    logger.info(f"Generated {result['tokens_generated']} tokens at {result['tokens_per_second']:.1f} tok/s")
+                    # Log response for debugging
+                    logger.info(f"Generated response: {result['text'][:100]}...")
                     
-                    # Submit result using NEW endpoint format
+                    # Submit result
                     submit_data = {
                         'miner_id': int(miner_id),
                         'request_id': request_id,
@@ -218,21 +293,28 @@ def worker_loop():
                     
                     if submit_resp.status_code == 200:
                         logger.info("✓ Result submitted successfully")
+                        consecutive_errors = 0
                     else:
                         logger.error(f"Submit failed: {submit_resp.status_code} - {submit_resp.text[:200]}")
+                        consecutive_errors += 1
                         
         except requests.exceptions.Timeout:
-            # Normal - no work available
-            pass
+            pass  # Normal - no work available
         except requests.exceptions.ConnectionError:
             logger.warning("Backend connection lost, retrying...")
+            consecutive_errors += 1
             time.sleep(5)
         except Exception as e:
             logger.error(f"Worker error: {e}")
-            time.sleep(2)
+            consecutive_errors += 1
             
-        # Brief pause between checks
-        time.sleep(1)
+        # Exponential backoff on errors
+        if consecutive_errors > 5:
+            wait_time = min(60, consecutive_errors * 2)
+            logger.warning(f"Too many errors, waiting {wait_time}s")
+            time.sleep(wait_time)
+        else:
+            time.sleep(1)
 
 if __name__ == "__main__":
     # Start worker thread
@@ -249,14 +331,17 @@ chmod +x miner.py
 # Create launcher script
 cat > start.sh << 'EOF'
 #!/bin/bash
-cd /data/mia-final
-source /data/venv-final/bin/activate
+cd /data/mia-fixed
+source /data/venv-fixed/bin/activate
 export HF_HOME="/data/huggingface"
 export TRANSFORMERS_CACHE="/data/huggingface"
 export CUDA_VISIBLE_DEVICES=0
 
+# Set debug logging
+export TRANSFORMERS_VERBOSITY=debug
+
 while true; do
-    echo "Starting Qwen2.5 miner..."
+    echo "Starting Fixed Qwen2.5 miner..."
     python3 miner.py
     echo "Miner stopped, restarting in 5 seconds..."
     sleep 5
@@ -267,24 +352,29 @@ chmod +x start.sh
 # Start the miner
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}✓ Starting Qwen2.5 miner...${NC}"
+echo -e "${GREEN}✓ Starting Fixed Qwen2.5 miner...${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
 
-nohup ./start.sh > /data/final_miner.log 2>&1 &
+nohup ./start.sh > /data/fixed_miner.log 2>&1 &
 PID=$!
 echo $PID > /data/miner.pid
 
 echo ""
 echo -e "${GREEN}✓ Miner started with PID $PID${NC}"
 echo ""
+echo -e "${RED}FIXES APPLIED:${NC}"
+echo "  • Extracts only generated tokens (not the full output)"
+echo "  • Handles special token markers properly"
+echo "  • Multiple fallback methods for response extraction"
+echo "  • Debug logging to track response generation"
+echo ""
 echo -e "${BLUE}Status:${NC}"
-echo "  • Model: Qwen2.5-7B-Instruct (29 languages)"
-echo "  • Quantization: 4-bit for 40+ tok/s"
-echo "  • Endpoint: Using new /submit_result format"
-echo "  • Auto-restart: Enabled"
+echo "  • Model: Qwen2.5-7B-Instruct"
+echo "  • Response extraction: FIXED"
+echo "  • Debug mode: Enabled"
 echo ""
 echo -e "${YELLOW}Commands:${NC}"
-echo "  tail -f /data/final_miner.log    # View logs"
-echo "  curl -X POST http://localhost:8000/generate -H 'Content-Type: application/json' -d '{\"prompt\":\"Hello!\"}'  # Test locally"
+echo "  tail -f /data/fixed_miner.log    # View logs"
+echo "  grep 'Response preview' /data/fixed_miner.log    # Check responses"
 echo ""
-echo -e "${GREEN}Your miner is now running and earning!${NC}"
+echo -e "${GREEN}The response cut-off issue should now be fixed!${NC}"
