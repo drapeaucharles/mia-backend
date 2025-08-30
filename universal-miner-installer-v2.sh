@@ -1,9 +1,9 @@
 #!/bin/bash
-# Universal MIA Miner Installer v2 - Works with any GPU/system
+# MIA Universal Miner Installer v2 - Fixed Dependencies
 # Supports Command-R with tool calling or falls back to Qwen
 
-echo "🚀 MIA Universal Miner Installer v2"
-echo "=================================="
+echo "🚀 MIA Universal Miner Installer v2 (Fixed)"
+echo "=========================================="
 echo "Features:"
 echo "- Auto-detects GPU and CUDA"
 echo "- Installs Command-R-7B with tool calling"
@@ -61,22 +61,25 @@ source venv/bin/activate
 # Upgrade pip
 pip install --upgrade pip wheel setuptools
 
-# Install PyTorch based on CUDA version
-echo "📦 Installing PyTorch..."
+# Install PyTorch and vLLM in the correct order
+echo "📦 Installing PyTorch and vLLM..."
 if [ "$CUDA_VERSION" = "cpu" ]; then
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-elif [ "$CUDA_VERSION" -ge "12" ]; then
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu
 else
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    # Install matching versions to avoid conflicts
+    pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cu118
 fi
 
-# Install core dependencies
-echo "📦 Installing core dependencies..."
+# Install vLLM first (it has specific torch requirements)
+pip install vllm==0.4.2
+
+# Install other dependencies
+echo "📦 Installing other dependencies..."
 pip install transformers accelerate sentencepiece protobuf
 pip install flask waitress requests psutil gputil
-pip install vllm==0.4.2  # For fast inference
-pip install auto-awq  # For AWQ model support
+
+# Try to install AWQ support (optional, may fail)
+pip install autoawq || echo "⚠️ AWQ support not available, continuing without it"
 
 # Create the universal miner with Command-R + fallback
 cat > miner.py << 'EOF'
@@ -128,13 +131,19 @@ def load_model():
     global model, model_name
     
     models_to_try = [
-        # Command-R variants (with tool calling)
-        ("TheBloke/c4ai-command-r-v01-AWQ", {"quantization": "awq"}),
-        ("CohereForAI/c4ai-command-r-v01", {}),
-        # Fallback to Qwen (tool calling via prompts)
+        # Qwen is most reliable and supports tool calling via prompts
         ("Qwen/Qwen2.5-7B-Instruct", {}),
-        ("Qwen/Qwen2.5-7B-Instruct-AWQ", {"quantization": "awq"}),
+        # Command-R variants (if available)
+        ("CohereForAI/c4ai-command-r-v01", {}),
     ]
+    
+    # Check if AWQ is available
+    try:
+        import awq
+        models_to_try.insert(0, ("Qwen/Qwen2.5-7B-Instruct-AWQ", {"quantization": "awq"}))
+        models_to_try.insert(2, ("TheBloke/c4ai-command-r-v01-AWQ", {"quantization": "awq"}))
+    except ImportError:
+        logger.info("AWQ not available, using standard models")
     
     for name, kwargs in models_to_try:
         try:
@@ -507,8 +516,8 @@ else
 fi
 echo ""
 echo "🔧 Features:"
-echo "   - Model: $model_name (auto-selected)"
-echo "   - Tool calling support"
+echo "   - Model: Auto-selected (Qwen2.5-7B most likely)"
+echo "   - Tool calling support via prompts"
 echo "   - Multilingual (EN/FR/RU/ID)"
 echo "   - Auto-restarts on failure"
 echo ""
