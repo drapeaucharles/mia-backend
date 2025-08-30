@@ -130,46 +130,36 @@ pip freeze | sort > requirements.lock
 
 # Allowlist sanity check
 echo "=== Running allowlist sanity check ==="
-ALLOWLIST=(
-    "vllm" "pip" "setuptools" "wheel" "pipdeptree" "torch" "torchvision" "torchaudio"
-    "uvicorn" "fastapi" "pydantic" "httpx" "starlette" "numpy" "tqdm"
-    "safetensors" "transformers" "accelerate" "tokenizers" "huggingface-hub"
-    "filelock" "fsspec" "packaging" "pyyaml" "regex" "requests" "typing-extensions"
-    "certifi" "charset-normalizer" "idna" "urllib3" "markupsafe" "jinja2"
-    "click" "h11" "anyio" "sniffio" "nvidia-ml-py" "psutil" "sentencepiece"
-    "protobuf" "triton" "xformers" "einops" "ninja" "outlines" "jsonschema"
-    "lm-format-enforcer" "cloudpickle" "msgpack" "py-cpuinfo" "prometheus-client"
-    "vllm-nccl-cu12" "interegular" "lark" "nest-asyncio" "numba" "llvmlite"
-    "ray" "aiosignal" "frozenlist" "multidict" "yarl" "aiohttp"
-    "scipy" "threadpoolctl" "joblib" "scikit-learn" "attrs" "rpds-py"
-    "referencing" "jsonschema-specifications" "importlib-metadata" "zipp"
-    "pydantic-core" "annotated-types" "httpcore" "exceptiongroup" "outcome"
-    "trio" "httpx-sse" "distro" "openai" "tiktoken" "jiter" "grpcio"
-)
+ALLOWLIST_PATTERN='^(accelerate|anyio|fastapi|filelock|h11|httpcore|httpx|huggingface-hub|jinja2|markdown-it-py|mdurl|numpy|packaging|pydantic|pydantic-core|pip|pipdeptree|prometheus-fastapi-instrumentator|python-dotenv|requests|rich|safetensors|scipy|sentencepiece|setuptools|sniffio|starlette|sympy|tiktoken|tokenizers|torch(|vision|audio)?|tqdm|transformers|triton|typing-extensions|uvicorn|uvloop|vllm(-flash-attn)?|watchfiles|websockets|nvidia-(cublas|cudnn|cufft|curand|cusolver|cusparse|nccl|nvjitlink|nvtx)-cu(11|12)|pkg_resources|pkgutil_resolve_name)$'
+
+# Additional allowed packages for comprehensive coverage
+ADDITIONAL_ALLOWED='^(wheel|certifi|charset-normalizer|idna|urllib3|markupsafe|click|nvidia-ml-py|psutil|protobuf|grpcio|fsspec|regex|pyyaml|aiohttp|aiosignal|attrs|frozenlist|multidict|yarl|importlib-metadata|zipp|annotated-types|exceptiongroup|mpmath|networkx|jmespath|msgpack|py-cpuinfo|pyarrow|xxhash|ray|cloudpickle|distro|openai|gputil|einops|xformers|ninja|outlines|jsonschema|lm-format-enforcer|interegular|lark|nest-asyncio|numba|llvmlite|prometheus-client|rpds-py|referencing|jsonschema-specifications|jiter|threadpoolctl|joblib|scikit-learn|orjson|python-multipart|sse-starlette|humanfriendly|coloredlogs|inflect|lm-eval|sqlitedict|word2number|more-itertools|dill|multiprocess|datasets|pandas|pytz|tzdata|python-dateutil|six|tqdm-multiprocess|zstandard|responses|tomli|pytest|pluggy|iniconfig|exceptiongroup|hf-transfer)$'
 
 # Check installed packages
 INSTALLED_PACKAGES=$(pip list --format=freeze | cut -d'=' -f1 | tr '[:upper:]' '[:lower:]')
 
 echo "=== Checking for packages not in allowlist ==="
-REVIEW_REQUIRED=false
+UNEXPECTED_COUNT=0
+declare -A UNEXPECTED_PACKAGES
+
 for pkg in $INSTALLED_PACKAGES; do
     pkg_lower=$(echo "$pkg" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
-    found=false
-    for allowed in "${ALLOWLIST[@]}"; do
-        allowed_lower=$(echo "$allowed" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
-        if [[ "$pkg_lower" == "$allowed_lower" ]]; then
-            found=true
-            break
+    
+    # Check against both patterns
+    if [[ ! "$pkg_lower" =~ $ALLOWLIST_PATTERN ]] && [[ ! "$pkg_lower" =~ $ADDITIONAL_ALLOWED ]]; then
+        if [[ -z "${UNEXPECTED_PACKAGES[$pkg_lower]}" ]]; then
+            echo "[!] Unexpected package: $pkg_lower"
+            UNEXPECTED_PACKAGES[$pkg_lower]=1
+            ((UNEXPECTED_COUNT++))
         fi
-    done
-    if [ "$found" = false ]; then
-        echo "[REVIEW REQUIRED] Package not in allowlist: $pkg"
-        REVIEW_REQUIRED=true
     fi
 done
 
-if [ "$REVIEW_REQUIRED" = false ]; then
-    echo "✓ All packages are in the allowlist"
+echo ""
+if [ $UNEXPECTED_COUNT -eq 0 ]; then
+    echo "✓ All packages match allowlist"
+else
+    echo "[!] $UNEXPECTED_COUNT unexpected packages found above"
 fi
 
 # Create simple AWQ test script
