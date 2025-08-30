@@ -140,14 +140,14 @@ INSTALLED_PACKAGES=$(pip list --format=freeze | cut -d'=' -f1 | tr '[:upper:]' '
 
 echo "=== Checking for packages not in allowlist ==="
 UNEXPECTED_COUNT=0
-declare -A UNEXPECTED_PACKAGES
+declare -A UNEXPECTED_PACKAGES=()
 
 for pkg in $INSTALLED_PACKAGES; do
     pkg_lower=$(echo "$pkg" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
     
     # Check against both patterns
     if [[ ! "$pkg_lower" =~ $ALLOWLIST_PATTERN ]] && [[ ! "$pkg_lower" =~ $ADDITIONAL_ALLOWED ]]; then
-        if [[ -z "${UNEXPECTED_PACKAGES[$pkg_lower]}" ]]; then
+        if [[ ! -v UNEXPECTED_PACKAGES[$pkg_lower] ]]; then
             echo "[!] Unexpected package: $pkg_lower"
             UNEXPECTED_PACKAGES[$pkg_lower]=1
             ((UNEXPECTED_COUNT++))
