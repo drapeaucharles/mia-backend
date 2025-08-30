@@ -133,7 +133,7 @@ echo "=== Running allowlist sanity check ==="
 ALLOWLIST_PATTERN='^(accelerate|anyio|fastapi|filelock|h11|httpcore|httpx|huggingface-hub|jinja2|markdown-it-py|mdurl|numpy|packaging|pydantic|pydantic-core|pip|pipdeptree|prometheus-fastapi-instrumentator|python-dotenv|requests|rich|safetensors|scipy|sentencepiece|setuptools|sniffio|starlette|sympy|tiktoken|tokenizers|torch(|vision|audio)?|tqdm|transformers|triton|typing-extensions|uvicorn|uvloop|vllm(-flash-attn)?|watchfiles|websockets|nvidia-(cublas|cudnn|cufft|curand|cusolver|cusparse|nccl|nvjitlink|nvtx)-cu(11|12)|pkg_resources|pkgutil_resolve_name)$'
 
 # Additional allowed packages for comprehensive coverage
-ADDITIONAL_ALLOWED='^(wheel|certifi|charset-normalizer|idna|urllib3|markupsafe|click|nvidia-ml-py|psutil|protobuf|grpcio|fsspec|regex|pyyaml|aiohttp|aiosignal|attrs|frozenlist|multidict|yarl|importlib-metadata|zipp|annotated-types|exceptiongroup|mpmath|networkx|jmespath|msgpack|py-cpuinfo|pyarrow|xxhash|ray|cloudpickle|distro|openai|gputil|einops|xformers|ninja|outlines|jsonschema|lm-format-enforcer|interegular|lark|nest-asyncio|numba|llvmlite|prometheus-client|rpds-py|referencing|jsonschema-specifications|jiter|threadpoolctl|joblib|scikit-learn|orjson|python-multipart|sse-starlette|humanfriendly|coloredlogs|inflect|lm-eval|sqlitedict|word2number|more-itertools|dill|multiprocess|datasets|pandas|pytz|tzdata|python-dateutil|six|tqdm-multiprocess|zstandard|responses|tomli|pytest|pluggy|iniconfig|exceptiongroup|hf-transfer)$'
+ADDITIONAL_ALLOWED='^(wheel|certifi|charset-normalizer|idna|urllib3|markupsafe|click|nvidia-ml-py|psutil|protobuf|grpcio|fsspec|regex|pyyaml|aiohttp|aiosignal|attrs|frozenlist|multidict|yarl|importlib-metadata|zipp|annotated-types|exceptiongroup|mpmath|networkx|jmespath|msgpack|py-cpuinfo|pyarrow|xxhash|ray|cloudpickle|distro|openai|gputil|einops|xformers|ninja|outlines|jsonschema|lm-format-enforcer|interegular|lark|nest-asyncio|numba|llvmlite|prometheus-client|rpds-py|referencing|jsonschema-specifications|jiter|threadpoolctl|joblib|scikit-learn|orjson|python-multipart|sse-starlette|humanfriendly|coloredlogs|inflect|lm-eval|sqlitedict|word2number|more-itertools|dill|multiprocess|datasets|pandas|pytz|tzdata|python-dateutil|six|tqdm-multiprocess|zstandard|responses|tomli|pytest|pluggy|iniconfig|exceptiongroup|hf-transfer|aiohappyeyeballs)$'
 
 # Check installed packages
 INSTALLED_PACKAGES=$(pip list --format=freeze | cut -d'=' -f1 | tr '[:upper:]' '[:lower:]')
@@ -150,7 +150,7 @@ for pkg in $INSTALLED_PACKAGES; do
         if [[ ! -v UNEXPECTED_PACKAGES[$pkg_lower] ]]; then
             echo "[!] Unexpected package: $pkg_lower"
             UNEXPECTED_PACKAGES[$pkg_lower]=1
-            ((UNEXPECTED_COUNT++))
+            UNEXPECTED_COUNT=$((UNEXPECTED_COUNT + 1))
         fi
     fi
 done
