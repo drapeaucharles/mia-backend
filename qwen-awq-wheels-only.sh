@@ -29,6 +29,9 @@ sudo apt-get install -y python3-venv python3-pip build-essential git curl jq
 
 echo "✓ System dependencies installed"
 
+# First, ensure we're in a valid directory
+cd /tmp || cd /
+
 # Environment setup
 [ -d "/data" ] && BASE_DIR="/data" || BASE_DIR="$HOME"
 MINER_DIR="$BASE_DIR/qwen-awq-miner"
