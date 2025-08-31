@@ -104,9 +104,6 @@ except ImportError:
     torch = None
 
 # Configure environment
-if os.path.exists("/data"):
-    os.environ["HF_HOME"] = "/data/huggingface"
-    os.environ["TRANSFORMERS_CACHE"] = "/data/huggingface"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["VLLM_ATTENTION_BACKEND"] = "XFORMERS"  # Force xFormers
 
