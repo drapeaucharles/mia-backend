@@ -252,7 +252,7 @@ def generate(prompt: str, tools: List[Dict] = None, **kwargs) -> Dict:
         max_tokens=kwargs.get('max_tokens', 512),
         top_p=0.95,
         stop=["<|im_end|>", "<|endoftext|>"],
-        skip_special_tokens=False  # Keep for tool parsing
+        skip_special_tokens=True if not tools else False  # Only keep tokens if tools are provided
     )
     
     # Generate
@@ -267,14 +267,16 @@ def generate(prompt: str, tools: List[Dict] = None, **kwargs) -> Dict:
     
     logger.info(f"Generated {token_count} tokens in {generation_time:.2f}s = {tokens_per_second:.1f} tok/s")
     
-    # Check for tool calls
-    tool_call = extract_tool_call(response_text) if tools else None
-    
-    # Clean response if no tool call
-    if not tool_call and response_text:
-        # Remove any incomplete tool call attempts
-        response_text = re.sub(r'<tool_call>.*?(?:</tool_call>)?', '', response_text, flags=re.DOTALL).strip()
-        response_text = re.sub(r'```tool_call.*?(?:```)?', '', response_text, flags=re.DOTALL).strip()
+    # Check for tool calls ONLY if tools were provided
+    tool_call = None
+    if tools:
+        tool_call = extract_tool_call(response_text)
+        
+        # Clean response only if tools were provided but no valid tool call found
+        if not tool_call and response_text:
+            # Remove any incomplete tool call attempts
+            response_text = re.sub(r'<tool_call>.*?(?:</tool_call>)?', '', response_text, flags=re.DOTALL).strip()
+            response_text = re.sub(r'```tool_call.*?(?:```)?', '', response_text, flags=re.DOTALL).strip()
     
     return {
         'response': response_text,
@@ -338,6 +340,10 @@ def worker():
                 if work and work.get('request_id'):
                     logger.info(f"Processing job: {work['request_id']}")
                     
+                    # Log if tools are provided
+                    if work.get('tools'):
+                        logger.info(f"Job includes {len(work['tools'])} tools")
+                    
                     # Generate response
                     result = generate(
                         prompt=work.get('prompt', ''),
@@ -346,6 +352,9 @@ def worker():
                         max_tokens=work.get('max_tokens', 512),
                         temperature=work.get('temperature', 0.7)
                     )
+                    
+                    # Log response details
+                    logger.info(f"Response generated: {len(result['response'])} chars, tool_call: {bool(result.get('tool_call'))}")
                     
                     # Prepare submission
                     submission = {
