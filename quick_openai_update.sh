@@ -7,8 +7,8 @@ cd /data/qwen-awq-miner
 pkill -f miner.py || true
 sleep 2
 
-# Download vLLM OpenAI server script directly
-curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/start_vllm_openai_server.sh -o start_vllm_openai_server.sh
+# Download the WORKING vLLM OpenAI server script
+curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/start_vllm_openai_server_fixed.sh -o start_vllm_openai_server.sh
 chmod +x start_vllm_openai_server.sh
 
 # Download OpenAI tools miner (optional)
