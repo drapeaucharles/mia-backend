@@ -40,7 +40,7 @@ python -m vllm.entrypoints.openai.api_server \
     --host 0.0.0.0 \
     --port 8000 \
     --enable-auto-tool-choice \
-    --tool-call-parser qwen \
+    --tool-call-parser qwen3_coder \
     --disable-log-requests \
     --disable-log-stats
 EOF
