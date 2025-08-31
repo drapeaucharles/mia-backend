@@ -97,6 +97,12 @@ from typing import Dict, List, Optional
 from vllm import LLM, SamplingParams
 from vllm.engine.arg_utils import EngineArgs
 
+# Import torch for GPU info
+try:
+    import torch
+except ImportError:
+    torch = None
+
 # Configure environment
 if os.path.exists("/data"):
     os.environ["HF_HOME"] = "/data/huggingface"
@@ -283,49 +289,46 @@ def generate(prompt: str, tools: List[Dict] = None, **kwargs) -> Dict:
 
 # MIA Backend Integration
 backend_url = os.getenv('MIA_BACKEND_URL', 'https://mia-backend-production.up.railway.app')
-miner_id = f"qwen-awq-{socket.gethostname()}"
+miner_name = f"qwen-awq-{socket.gethostname()}"
+miner_id = None  # Will be set after registration
 
 def register_miner():
     """Register with MIA backend"""
+    global miner_id
     try:
-        gpu_info = {}
-        if torch.cuda.is_available():
-            import torch
-            gpu_info = {
-                'name': torch.cuda.get_device_name(0),
-                'memory_mb': torch.cuda.get_device_properties(0).total_memory // (1024*1024)
-            }
-        
+        # Backend only expects 'name' field
         response = requests.post(
             f"{backend_url}/register_miner",
-            json={
-                "name": miner_id,
-                "gpu_name": gpu_info.get('name', 'Unknown'),
-                "gpu_memory_mb": gpu_info.get('memory_mb', 0),
-                "status": "idle",
-                "capabilities": ["tool_calling", "awq", "12k_context", "xformers"]
-            },
+            json={"name": miner_name},
             timeout=10
         )
         
         if response.status_code == 200:
             data = response.json()
-            logger.info(f"✓ Registered with backend as: {data.get('miner_id', miner_id)}")
-            return data.get('miner_id', miner_id)
-        else:
-            logger.warning(f"Registration failed: {response.status_code}")
+            miner_id = int(data.get('miner_id'))  # Convert to int
+            logger.info(f"✓ Registered with backend. Miner ID: {miner_id}")
             return miner_id
+        else:
+            logger.error(f"Registration failed: {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            return None
     except Exception as e:
-        logger.warning(f"Failed to register: {e}")
-        return miner_id
+        logger.error(f"Failed to register: {e}")
+        return None
 
 def worker():
     """Background worker for MIA jobs"""
-    logger.info(f"Starting worker: {miner_id}")
+    global miner_id
+    
+    if miner_id is None:
+        logger.error("Cannot start worker - miner not registered")
+        return
+        
+    logger.info(f"Starting worker with miner ID: {miner_id}")
     
     while True:
         try:
-            # Get work
+            # Get work - miner_id should be int
             response = requests.get(
                 f"{backend_url}/get_work",
                 params={"miner_id": miner_id},
@@ -359,11 +362,11 @@ def worker():
                         submission['tool_call'] = result['tool_call']
                         submission['requires_tool_execution'] = True
                     
-                    # Submit result
+                    # Submit result - miner_id must be int
                     submit_response = requests.post(
                         f"{backend_url}/submit_result",
                         json={
-                            'miner_id': miner_id,
+                            'miner_id': miner_id,  # This is already int from registration
                             'request_id': work['request_id'],
                             'result': submission
                         },
@@ -477,7 +480,9 @@ if __name__ == "__main__":
     test_model()
     
     # Register with backend
-    miner_id = register_miner()
+    if not register_miner():
+        logger.error("Failed to register with backend, exiting")
+        sys.exit(1)
     
     # Start worker thread
     worker_thread = threading.Thread(target=worker, daemon=True)
