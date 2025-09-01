@@ -152,8 +152,8 @@ chmod +x start_vllm.sh
 echo "✍️ Creating miner.py..."
 cat > miner.py << 'SCRIPT'
 #!/usr/bin/env python3
-"""MIA Job Polling Miner"""
-import os, sys, json, time, logging, requests
+"""MIA Job Polling Miner - Auto-registers with backend"""
+import os, sys, json, time, logging, requests, socket
 from typing import Dict, Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -161,12 +161,32 @@ logger = logging.getLogger("mia-miner")
 
 MIA_BACKEND_URL = os.getenv("MIA_BACKEND_URL", "https://mia-backend-production.up.railway.app")
 VLLM_URL = "http://localhost:8000/v1"
-MINER_ID = int(os.getenv("MINER_ID", "1"))
 
 class MIAMiner:
     def __init__(self):
         self.session = requests.Session()
-        self.miner_id = MINER_ID
+        self.miner_id = None
+        self.miner_name = f"gpu-miner-{socket.gethostname()}"
+        
+    def register(self) -> bool:
+        """Register with backend and get miner ID"""
+        try:
+            response = self.session.post(
+                f"{MIA_BACKEND_URL}/register_miner",
+                json={"name": self.miner_name},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                self.miner_id = int(data["miner_id"])
+                logger.info(f"✓ Registered as miner ID: {self.miner_id}")
+                return True
+            else:
+                logger.error(f"Registration failed: {response.status_code} - {response.text}")
+        except Exception as e:
+            logger.error(f"Registration error: {e}")
+        return False
         
     def get_work(self) -> Optional[Dict]:
         try:
@@ -253,23 +273,36 @@ class MIAMiner:
         return False
     
     def run(self):
-        logger.info(f"MIA Miner | Backend: {MIA_BACKEND_URL} | Miner ID: {self.miner_id}")
+        logger.info(f"MIA Miner starting...")
+        logger.info(f"Backend: {MIA_BACKEND_URL}")
         
-        # Test vLLM
-        try:
-            test = self.session.get(f"{VLLM_URL}/models", timeout=5)
-            if test.status_code == 200:
-                logger.info("✓ vLLM is running")
-            else:
-                logger.error("vLLM not ready")
-                sys.exit(1)
-        except Exception as e:
-            logger.error(f"vLLM not running: {e}")
+        # Wait for vLLM to be ready
+        logger.info("Waiting for vLLM...")
+        for i in range(60):
+            try:
+                test = self.session.get(f"{VLLM_URL}/models", timeout=5)
+                if test.status_code == 200:
+                    logger.info("✓ vLLM is ready")
+                    break
+            except:
+                pass
+            time.sleep(1)
+            sys.stdout.write(".")
+            sys.stdout.flush()
+        else:
+            logger.error("vLLM timeout - make sure it's running")
+            sys.exit(1)
+        
+        # Register with backend
+        if not self.register():
+            logger.error("Failed to register with backend")
             sys.exit(1)
         
         jobs_completed = 0
         total_tokens = 0
         errors = 0
+        
+        logger.info(f"Starting job polling loop as miner {self.miner_id}...")
         
         while True:
             try:
@@ -291,8 +324,8 @@ class MIAMiner:
                     time.sleep(2)
                 
                 if errors > 5:
-                    logger.warning("Too many errors, pausing...")
-                    time.sleep(30)
+                    logger.warning("Too many errors, re-registering...")
+                    self.register()
                     errors = 0
                     
             except KeyboardInterrupt:
@@ -318,7 +351,8 @@ cd "$(dirname "$0")"
 if [[ ! -f vllm.pid ]] || ! kill -0 "$(cat vllm.pid)" 2>/dev/null; then
     echo "Starting vLLM..."
     ./start_vllm.sh
-    sleep 10
+    echo "Waiting for vLLM to download model and start (this may take a few minutes)..."
+    sleep 15
 fi
 
 # Activate virtual environment
@@ -331,9 +365,8 @@ pip install requests 2>/dev/null || true
 export HF_HOME=/data/cache/hf
 export TRANSFORMERS_CACHE=/data/cache/hf
 export MIA_BACKEND_URL=${MIA_BACKEND_URL:-https://mia-backend-production.up.railway.app}
-export MINER_ID=${MINER_ID:-1}
 
-echo "Starting polling miner (ID: $MINER_ID)..."
+echo "Starting polling miner (auto-registering with backend)..."
 python miner.py 2>&1 | tee -a miner.log
 SCRIPT
 chmod +x start_miner.sh
@@ -489,8 +522,7 @@ echo "🐍 Virtual environment: /data/qwen-awq-miner/.venv"
 echo ""
 echo "To start mining:"
 echo "  cd /data/qwen-awq-miner"
-echo "  export MINER_ID=your_id   # Set your miner ID"
-echo "  ./start_miner.sh          # Start polling miner"
+echo "  ./start_miner.sh          # Auto-registers and starts mining"
 echo ""
 echo "Management commands:"
 echo "  ./vllm_manage.sh status   # Check if running"
