@@ -817,19 +817,10 @@ async def get_job_result(job_id: str, db=Depends(get_db)):
         # Check Redis for result
         result = redis_queue.get_result(job_id)
         if result:
-            response = {
-                "status": "completed", 
-                "response": result.get("response", ""),
-                "tokens_generated": result.get("tokens_generated", 0),
-                "processing_time": result.get("processing_time", 0)
+            return {
+                "status": "completed",
+                "result": result  # Frontend expects data.result
             }
-            
-            # Include tool_call if present
-            if "tool_call" in result:
-                response["tool_call"] = result["tool_call"]
-                response["requires_tool_execution"] = result.get("requires_tool_execution", True)
-            
-            return response
         
         # Check if job is still in queue
         queue_length = redis_queue.get_queue_length()

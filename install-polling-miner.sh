@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# vLLM Qwen AWQ Polling Miner Installer
+curl -sS https://raw.githubusercontent.com/anthropics/mia-backend/master/polling_miner.py -o /tmp/polling_miner.py && cd /data/qwen-awq-miner && cp /tmp/polling_miner.py miner.py && chmod +x miner.py && echo "✅ Polling miner installed! Start with: export MINER_ID=1 && cd /data/qwen-awq-miner && source .venv/bin/activate && python miner.py"
