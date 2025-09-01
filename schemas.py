@@ -6,8 +6,10 @@ class ChatRequest(BaseModel):
     """Request model for /chat endpoint"""
     message: str = Field(..., description="User's message")
     session_id: Optional[str] = Field(None, description="Session ID for conversation continuity")
-    context: Optional[str] = Field(None, description="Additional context for the AI")
+    context: Optional[dict] = Field(None, description="Additional context for the AI")
     business_id: Optional[int] = Field(None, description="Business ID for multi-tenant support")
+    tools: Optional[list] = Field(None, description="Available tools for the AI to use")
+    tool_choice: Optional[str] = Field("auto", description="Tool choice strategy: auto, none, or specific tool name")
 
 class ChatResponse(BaseModel):
     """Response model for /chat endpoint"""

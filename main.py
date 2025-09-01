@@ -132,11 +132,16 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
         job = {
             "job_id": job_id,
             "prompt": request.message,
-            "context": request.context or "",
+            "context": request.context or {},
             "session_id": session_id,
             "business_id": request.business_id,
             "timestamp": datetime.utcnow().isoformat()
         }
+        
+        # Add tools if provided
+        if hasattr(request, 'tools') and request.tools:
+            job["tools"] = request.tools
+            job["tool_choice"] = getattr(request, 'tool_choice', 'auto')
         
         # Always push to queue for fair distribution
         redis_queue.push_job(job)
@@ -723,12 +728,23 @@ async def get_work_for_miner(miner_id: int, wait: bool = False, db=Depends(get_d
             
             logger.info(f"Job {job.get('job_id')} assigned to miner {miner_id}")
             
-            return {
+            response = {
                 "request_id": job.get("job_id"),
                 "prompt": job.get("prompt"),
                 "max_tokens": job.get("max_tokens", 500),
                 "temperature": job.get("temperature", 0.7)
             }
+            
+            # Include context if available
+            if job.get("context"):
+                response["context"] = job["context"]
+            
+            # Include tools if available
+            if job.get("tools"):
+                response["tools"] = job["tools"]
+                response["tool_choice"] = job.get("tool_choice", "auto")
+            
+            return response
         
         # No work available
         return {}
@@ -760,13 +776,21 @@ async def submit_miner_result(
         else:
             result_text = str(result_data)
             
-        redis_queue.store_result(request.request_id, {
+        # Build result to store
+        stored_result = {
             "response": result_text,
             "tokens_generated": result_data.get("tokens_generated", 0) if isinstance(result_data, dict) else 0,
             "processing_time": result_data.get("processing_time", 0) if isinstance(result_data, dict) else 0,
             "miner_id": request.miner_id,
             "timestamp": datetime.utcnow().isoformat()
-        })
+        }
+        
+        # Include tool_call if present
+        if isinstance(result_data, dict) and "tool_call" in result_data:
+            stored_result["tool_call"] = result_data["tool_call"]
+            stored_result["requires_tool_execution"] = result_data.get("requires_tool_execution", True)
+        
+        redis_queue.store_result(request.request_id, stored_result)
         
         # Update miner stats
         miner = db.query(database.Miner).filter(database.Miner.id == request.miner_id).first()
@@ -793,7 +817,19 @@ async def get_job_result(job_id: str, db=Depends(get_db)):
         # Check Redis for result
         result = redis_queue.get_result(job_id)
         if result:
-            return {"status": "completed", "result": result}
+            response = {
+                "status": "completed", 
+                "response": result.get("response", ""),
+                "tokens_generated": result.get("tokens_generated", 0),
+                "processing_time": result.get("processing_time", 0)
+            }
+            
+            # Include tool_call if present
+            if "tool_call" in result:
+                response["tool_call"] = result["tool_call"]
+                response["requires_tool_execution"] = result.get("requires_tool_execution", True)
+            
+            return response
         
         # Check if job is still in queue
         queue_length = redis_queue.get_queue_length()
