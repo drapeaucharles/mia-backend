@@ -324,7 +324,7 @@ EOF
 # Make executable
 chmod +x mia_miner.py
 
-# Create restart script
+# Create restart script (keeping debug mode)
 cat > restart_miner.sh << 'EOF'
 #!/bin/bash
 cd /data/qwen-awq-miner
@@ -336,19 +336,15 @@ if [ -f miner.pid ]; then
     rm -f miner.pid
 fi
 
-# Start new miner
-echo "Starting fixed miner..."
+# Start new miner with debug logging to console
+echo "Starting fixed miner with debug logging..."
 source .venv/bin/activate
-nohup python mia_miner.py > logs/miner_direct.log 2>&1 &
-echo $! > miner.pid
 
-sleep 2
-if [ -f miner.pid ] && kill -0 $(cat miner.pid) 2>/dev/null; then
-    echo "✅ Miner started with PID $(cat miner.pid)"
-    echo "📋 Logs: tail -f logs/miner_direct.log"
-else
-    echo "❌ Failed to start miner"
-fi
+# Run in foreground with full logging
+echo "📋 Starting miner with live debug output..."
+echo "Press Ctrl+C to stop"
+echo ""
+python mia_miner.py
 EOF
 
 chmod +x restart_miner.sh
