@@ -1,12 +1,13 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import JSONResponse, HTMLResponse
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict
 import uuid
 import os
 import logging
 from dotenv import load_dotenv
 from sqlalchemy import func
+import json
 
 from db import get_db, init_db
 from schemas import (
@@ -40,6 +41,9 @@ redis_queue = RedisQueue()
 runpod_manager = RunPodManager()
 buyback_engine = BuybackEngine()
 
+# Global storage for available GPUs (heartbeat architecture)
+available_gpus: Dict[str, Dict] = {}
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup"""
@@ -54,6 +58,29 @@ async def startup_event():
     except Exception as e:
         print(f"Database initialization error: {e}")
         # Continue running even if DB init fails for healthcheck
+    
+    # Start background task to clean stale GPU entries (heartbeat architecture)
+    async def cleanup_stale_gpus():
+        while True:
+            try:
+                now = datetime.utcnow()
+                stale_threshold = now - timedelta(seconds=5)
+                
+                stale_ids = [
+                    gpu_id for gpu_id, info in available_gpus.items()
+                    if info.get('last_heartbeat', now) < stale_threshold
+                ]
+                
+                for gpu_id in stale_ids:
+                    logger.info(f"Removing stale GPU: {gpu_id}")
+                    del available_gpus[gpu_id]
+                    
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
+                
+            await asyncio.sleep(10)
+    
+    asyncio.create_task(cleanup_stale_gpus())
 
 @app.get("/")
 async def root():
@@ -268,6 +295,237 @@ async def register_miner(request: MinerRegistration, db=Depends(get_db)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ===== HEARTBEAT ARCHITECTURE ENDPOINTS =====
+
+@app.post("/register")
+async def register_heartbeat_miner(request: dict, db=Depends(get_db)):
+    """
+    Register endpoint for heartbeat miners (new architecture)
+    Accepts different format than /register_miner
+    """
+    try:
+        # Extract data from heartbeat miner format
+        ip_address = request.get('ip_address', 'unknown')
+        gpu_info = request.get('gpu_info', {})
+        hostname = request.get('hostname', 'unknown')
+        backend_type = request.get('backend_type', 'vllm-heartbeat')
+        
+        # Create name from hostname for compatibility
+        name = f"{hostname}_{backend_type}"
+        
+        # Check if miner already exists by IP or hostname
+        existing_miner = db.query(database.Miner).filter(
+            (database.Miner.ip_address == ip_address) | 
+            (database.Miner.name == name)
+        ).first()
+        
+        if existing_miner:
+            # Update last seen
+            existing_miner.last_active = datetime.utcnow()
+            existing_miner.gpu_name = gpu_info.get('name', existing_miner.gpu_name)
+            existing_miner.gpu_memory_mb = gpu_info.get('memory_mb', existing_miner.gpu_memory_mb)
+            db.commit()
+            
+            return {
+                "miner_id": str(existing_miner.id),
+                "auth_key": existing_miner.auth_key,
+                "message": "Miner already registered"
+            }
+        
+        # Create new miner
+        auth_key = generate_auth_key()
+        miner = database.Miner(
+            name=name,
+            auth_key=auth_key,
+            ip_address=ip_address,
+            gpu_name=gpu_info.get('name'),
+            gpu_memory_mb=gpu_info.get('memory_mb'),
+            job_count=0
+        )
+        db.add(miner)
+        db.commit()
+        db.refresh(miner)
+        
+        logger.info(f"Registered new heartbeat miner: {miner.id} from {ip_address}")
+        
+        return {
+            "miner_id": str(miner.id),
+            "auth_key": auth_key,
+            "message": "Miner registered successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/heartbeat")
+async def receive_heartbeat(request: dict, db=Depends(get_db)):
+    """
+    Receive heartbeat from GPU miners
+    """
+    try:
+        miner_id = request.get('miner_id')
+        
+        if not miner_id:
+            raise HTTPException(status_code=400, detail="miner_id required")
+        
+        # Verify miner exists
+        miner = db.query(database.Miner).filter(
+            database.Miner.id == int(miner_id)
+        ).first()
+        
+        if not miner:
+            raise HTTPException(status_code=404, detail="Miner not found")
+        
+        # Update available GPUs tracking
+        available_gpus[str(miner_id)] = {
+            "last_heartbeat": datetime.utcnow(),
+            "status": request.get('status', 'available'),
+            "ip": miner.ip_address,
+            "port": request.get('port', 5000),
+            "auth_key": miner.auth_key,
+            "name": miner.name
+        }
+        
+        # Update miner last seen
+        miner.last_active = datetime.utcnow()
+        db.commit()
+        
+        return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Heartbeat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def get_available_gpu() -> Optional[Dict]:
+    """Get the most recently available GPU"""
+    if not available_gpus:
+        return None
+        
+    # Get GPU with most recent heartbeat that's available
+    available = [
+        (gpu_id, info) for gpu_id, info in available_gpus.items()
+        if info.get('status') == 'available'
+    ]
+    
+    if not available:
+        return None
+        
+    # Sort by most recent heartbeat
+    available.sort(key=lambda x: x[1].get('last_heartbeat', datetime.min), reverse=True)
+    gpu_id, info = available[0]
+    
+    return {
+        "id": gpu_id,
+        "url": f"http://{info['ip']}:{info['port']}",
+        "auth_key": info['auth_key'],
+        "name": info.get('name', 'unknown')
+    }
+
+@app.post("/chat/direct", response_model=ChatResponse)
+async def chat_with_direct_gpu(request: ChatRequest, db=Depends(get_db)):
+    """
+    New endpoint that pushes work directly to available GPUs
+    Falls back to queue if no GPU available
+    """
+    try:
+        # Try to get available GPU
+        gpu = get_available_gpu()
+        
+        if gpu:
+            logger.info(f"Pushing job directly to GPU {gpu['id']} ({gpu['name']})")
+            
+            # Mark GPU as busy
+            if gpu['id'] in available_gpus:
+                available_gpus[gpu['id']]['status'] = 'busy'
+            
+            # Push work to GPU
+            try:
+                job_id = str(uuid.uuid4())
+                
+                response = requests.post(
+                    f"{gpu['url']}/process",
+                    json={
+                        "request_id": job_id,
+                        "prompt": request.message,
+                        "messages": [{"role": "user", "content": request.message}],
+                        "context": request.context,
+                        "temperature": 0.7,
+                        "max_tokens": 2000
+                    },
+                    headers={"Authorization": f"Bearer {gpu['auth_key']}"},
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    # Mark GPU as available again
+                    if gpu['id'] in available_gpus:
+                        available_gpus[gpu['id']]['status'] = 'available'
+                    
+                    # Save to chat log
+                    chat_log = database.ChatLog(
+                        session_id=request.session_id or str(uuid.uuid4()),
+                        message=result.get('response', ''),
+                        role="assistant",
+                        timestamp=datetime.utcnow()
+                    )
+                    db.add(chat_log)
+                    db.commit()
+                    
+                    return ChatResponse(
+                        job_id=job_id,
+                        status="completed",
+                        response=result.get('response', ''),
+                        tokens_generated=result.get('tokens_generated', 0)
+                    )
+                else:
+                    logger.error(f"GPU returned error: {response.status_code}")
+                    # Mark GPU as available
+                    if gpu['id'] in available_gpus:
+                        available_gpus[gpu['id']]['status'] = 'available'
+                    # Fall through to queue
+                    
+            except Exception as e:
+                logger.error(f"Error pushing to GPU: {e}")
+                # Mark GPU as available
+                if gpu['id'] in available_gpus:
+                    available_gpus[gpu['id']]['status'] = 'available'
+                # Fall through to queue
+        
+        # Fallback to queue-based system
+        logger.info("No available GPU for direct push, using queue")
+        return await create_chat_job(request, db)  # Call existing chat endpoint
+        
+    except Exception as e:
+        logger.error(f"Direct chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/metrics/gpus")
+async def get_gpu_metrics():
+    """Get current GPU availability metrics"""
+    now = datetime.utcnow()
+    return {
+        "total_gpus": len(available_gpus),
+        "available_gpus": len([g for g in available_gpus.values() if g.get('status') == 'available']),
+        "busy_gpus": len([g for g in available_gpus.values() if g.get('status') == 'busy']),
+        "gpus": [
+            {
+                "id": gpu_id,
+                "name": info.get('name', 'unknown'),
+                "status": info.get('status', 'unknown'),
+                "last_heartbeat": info.get('last_heartbeat', now).isoformat(),
+                "seconds_since_heartbeat": (now - info.get('last_heartbeat', now)).total_seconds()
+            }
+            for gpu_id, info in available_gpus.items()
+        ]
+    }
+
+# ===== END HEARTBEAT ARCHITECTURE ENDPOINTS =====
 
 @app.post("/idle-job", response_model=IdleJobResponse)
 async def create_idle_job(request: IdleJobRequest, db=Depends(get_db)):
