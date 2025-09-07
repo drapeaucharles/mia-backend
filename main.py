@@ -140,6 +140,9 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
     """
     Receive chat messages from clients - tries push first, then queue
     """
+    # CONFIGURATION: Set to True to enable queue fallback
+    ENABLE_QUEUE_FALLBACK = False  # Currently disabled for testing
+    
     try:
         # Generate unique IDs
         job_id = str(uuid.uuid4())
@@ -229,32 +232,44 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
                     available_gpus[gpu['id']]['status'] = 'available'
                 # Fall through to queue
         
-        # Fallback to queue system
-        logger.info("Using queue system (no GPU available or push failed)")
-        
-        # Create job for queue
-        job = {
-            "job_id": job_id,
-            "prompt": request.message,
-            "context": request.context or {},
-            "session_id": session_id,
-            "business_id": request.business_id,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-        # Add tools if provided
-        if hasattr(request, 'tools') and request.tools:
-            job["tools"] = request.tools
-            job["tool_choice"] = getattr(request, 'tool_choice', 'auto')
-        
-        redis_queue.push_job(job)
-        
-        return ChatResponse(
-            job_id=job_id,
-            session_id=session_id,
-            status="queued",
-            message="Job queued successfully"
-        )
+        # Check if queue fallback is enabled
+        if ENABLE_QUEUE_FALLBACK:
+            logger.info("Using queue system (no GPU available or push failed)")
+            
+            # Create job for queue
+            job = {
+                "job_id": job_id,
+                "prompt": request.message,
+                "context": request.context or {},
+                "session_id": session_id,
+                "business_id": request.business_id,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # Add tools if provided
+            if hasattr(request, 'tools') and request.tools:
+                job["tools"] = request.tools
+                job["tool_choice"] = getattr(request, 'tool_choice', 'auto')
+            
+            redis_queue.push_job(job)
+            
+            return ChatResponse(
+                job_id=job_id,
+                session_id=session_id,
+                status="queued",
+                message="Job queued successfully"
+            )
+        else:
+            # Push-only mode - return error if no GPU available
+            logger.warning("No GPU available for push - returning error (queue disabled)")
+            
+            return ChatResponse(
+                job_id=job_id,
+                session_id=session_id,
+                status="failed",
+                message="No GPU available - push-only mode enabled (queue disabled for testing)",
+                response=None
+            )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
