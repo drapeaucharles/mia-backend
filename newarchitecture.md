@@ -84,7 +84,9 @@ If issues occur:
 - ✅ Created `install-vllm-heartbeat.sh` (parallel to old installer)
 - ✅ Implemented heartbeat miner with Flask endpoint
 - ✅ Created `main_heartbeat_additions.py` with backend code needed
-- ⏳ Backend deployment (add code from main_heartbeat_additions.py to main.py)
+- ✅ Created `main_heartbeat_update.py` with improved backend code
+- ✅ Created `add_miner_fields.py` for database migration
+- ⏳ Backend deployment (add code from main_heartbeat_update.py to main.py)
 - ⏳ Restaurant chat integration for 2-stage AI
 - ⏳ Testing and validation
 
@@ -93,17 +95,51 @@ If issues occur:
 2. **`main_heartbeat_additions.py`** - Backend code to add to main.py
 3. **`newarchitecture.md`** - This documentation
 
-## Next Steps
-1. Deploy heartbeat miner on test GPU:
-   ```bash
-   curl -sSL https://raw.githubusercontent.com/.../install-vllm-heartbeat.sh | bash
-   ```
+## Deployment Steps
 
-2. Add heartbeat endpoints to backend (copy from main_heartbeat_additions.py)
+### 1. Update Backend (Railway)
+```bash
+# First, add missing database fields
+python add_miner_fields.py
 
-3. Test new `/chat/direct` endpoint for latency improvement
+# Then add the code from main_heartbeat_update.py to main.py
+# Copy everything between the triple quotes
+```
 
-4. Implement 2-stage AI processing in restaurant chat
+### 2. Test Heartbeat Miner
+```bash
+# On GPU/VPS:
+cd /data/qwen-awq-miner && ./start_heartbeat_miner.sh
+
+# Check logs:
+tail -f /data/qwen-awq-miner/heartbeat_miner.out
+```
+
+### 3. Monitor GPU Availability
+```bash
+# Check registered GPUs:
+curl https://mia-backend-production.up.railway.app/metrics/gpus
+```
+
+### 4. Test Direct Push
+```bash
+# Test the new push endpoint:
+curl -X POST https://mia-backend-production.up.railway.app/chat/direct \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello", "context": {}}'
+```
+
+## Endpoints Overview
+- **Old (Polling)**:
+  - `/register_miner` - Register polling miners
+  - `/get_work` - Miners poll for work
+  - `/chat` - Queue-based chat
+
+- **New (Heartbeat)**:
+  - `/register` - Register heartbeat miners
+  - `/heartbeat` - Receive GPU availability
+  - `/chat/direct` - Push work directly to GPU
+  - `/metrics/gpus` - Monitor GPU status
 
 ## Performance Expectations
 - **Old System**: 2s average delay (polling every 2s)
