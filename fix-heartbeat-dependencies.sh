@@ -7,13 +7,21 @@ echo ""
 
 cd /data/qwen-awq-miner
 
-# Activate the virtual environment
-if [ -f "venv/bin/activate" ]; then
-    echo "✅ Found virtual environment"
-    source venv/bin/activate
+# Activate the virtual environment (it's .venv not venv)
+if [ -f ".venv/bin/activate" ]; then
+    echo "✅ Found virtual environment at .venv"
+    source .venv/bin/activate
 else
-    echo "❌ No virtual environment found!"
-    exit 1
+    echo "❌ No virtual environment found at .venv!"
+    # Try to find any Python environment
+    if [ -f "venv/bin/activate" ]; then
+        echo "✅ Found virtual environment at venv"
+        source venv/bin/activate
+    else
+        echo "📦 No virtual environment found, using system Python"
+        # Install with system pip
+        pip install flask waitress aiohttp || pip3 install flask waitress aiohttp
+    fi
 fi
 
 # Install missing dependencies
