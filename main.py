@@ -385,7 +385,8 @@ async def receive_heartbeat(request: dict, db=Depends(get_db)):
             "ip": miner.ip_address,
             "port": request.get('port', 5000),
             "auth_key": miner.auth_key,
-            "name": miner.name
+            "name": miner.name,
+            "public_url": request.get('public_url')  # Store public URL if provided
         }
         
         # Update miner last seen
@@ -418,9 +419,15 @@ def get_available_gpu() -> Optional[Dict]:
     available.sort(key=lambda x: x[1].get('last_heartbeat', datetime.min), reverse=True)
     gpu_id, info = available[0]
     
+    # Use public_url if available (for tunneled GPUs)
+    if info.get('public_url'):
+        url = info['public_url']
+    else:
+        url = f"http://{info['ip']}:{info['port']}"
+    
     return {
         "id": gpu_id,
-        "url": f"http://{info['ip']}:{info['port']}",
+        "url": url,
         "auth_key": info['auth_key'],
         "name": info.get('name', 'unknown')
     }
