@@ -6,10 +6,10 @@ echo "🚀 Installing Complete vLLM with Heartbeat/Push Architecture"
 echo "========================================================="
 echo ""
 
-# First run the base installer
-echo "📦 Step 1: Installing base vLLM with working wheel..."
+# First run the universal installer
+echo "📦 Step 1: Installing base vLLM (universal installer)..."
 echo "----------------------------------------------------"
-curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-vllm-tool-fix.sh | bash
+curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-vllm-final.sh | bash
 
 # Check if base installation succeeded
 if [ ! -d "/data/qwen-awq-miner" ]; then
@@ -22,8 +22,18 @@ echo "✅ Base installation complete!"
 echo ""
 sleep 2
 
-# Now run the heartbeat installer
-echo "📦 Step 2: Adding heartbeat/push architecture..."
+# Now run the tool fix update
+echo "📦 Step 2: Applying tool call fixes..."
+echo "------------------------------------"
+curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-vllm-tool-fix.sh | bash
+
+echo ""
+echo "✅ Tool fixes applied!"
+echo ""
+sleep 2
+
+# Finally run the heartbeat installer
+echo "📦 Step 3: Adding heartbeat/push architecture..."
 echo "-----------------------------------------------"
 curl -sSL https://raw.githubusercontent.com/drapeaucharles/mia-backend/master/install-vllm-heartbeat.sh | bash
 
