@@ -138,7 +138,7 @@ async def dispatch_job_to_miner(job: dict, db):
 @app.post("/chat", response_model=ChatResponse)
 async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
     """
-    Receive chat messages from clients and queue jobs for miners
+    Receive chat messages from clients - tries push first, then queue
     """
     try:
         # Generate unique IDs
@@ -155,7 +155,84 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
         db.add(chat_log)
         db.commit()
         
-        # Create job for miners
+        # Try push architecture first
+        gpu = get_available_gpu()
+        if gpu:
+            logger.info(f"Attempting direct push to GPU {gpu['id']}")
+            
+            # Mark GPU as busy
+            if gpu['id'] in available_gpus:
+                available_gpus[gpu['id']]['status'] = 'busy'
+            
+            try:
+                # Prepare job data
+                push_data = {
+                    "request_id": job_id,
+                    "prompt": request.message,
+                    "messages": [{"role": "user", "content": request.message}],
+                    "context": request.context or {},
+                    "session_id": session_id,
+                    "temperature": 0.7,
+                    "max_tokens": 2000
+                }
+                
+                # Add tools if provided
+                if hasattr(request, 'tools') and request.tools:
+                    push_data["tools"] = request.tools
+                    push_data["tool_choice"] = getattr(request, 'tool_choice', 'auto')
+                
+                # Push to GPU
+                response = requests.post(
+                    f"{gpu['url']}/process",
+                    json=push_data,
+                    headers={"Authorization": f"Bearer {gpu['auth_key']}"},
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    # Mark GPU as available again
+                    if gpu['id'] in available_gpus:
+                        available_gpus[gpu['id']]['status'] = 'available'
+                    
+                    if result.get('success'):
+                        # Store AI response in database
+                        ai_log = database.ChatLog(
+                            session_id=session_id,
+                            message=result.get('response', ''),
+                            role="assistant",
+                            timestamp=datetime.utcnow()
+                        )
+                        db.add(ai_log)
+                        db.commit()
+                        
+                        return ChatResponse(
+                            job_id=job_id,
+                            session_id=session_id,
+                            status="completed",
+                            message="Job completed via push",
+                            response=result.get('response', ''),
+                            tool_calls=result.get('tool_calls', [])
+                        )
+                    else:
+                        logger.warning(f"GPU processing failed: {result.get('error')}")
+                        # Fall through to queue
+                else:
+                    logger.warning(f"GPU push failed with status {response.status_code}")
+                    # Fall through to queue
+                    
+            except Exception as e:
+                logger.error(f"Push to GPU failed: {e}")
+                # Mark GPU as available again
+                if gpu['id'] in available_gpus:
+                    available_gpus[gpu['id']]['status'] = 'available'
+                # Fall through to queue
+        
+        # Fallback to queue system
+        logger.info("Using queue system (no GPU available or push failed)")
+        
+        # Create job for queue
         job = {
             "job_id": job_id,
             "prompt": request.message,
@@ -170,7 +247,6 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
             job["tools"] = request.tools
             job["tool_choice"] = getattr(request, 'tool_choice', 'auto')
         
-        # Always push to queue for fair distribution
         redis_queue.push_job(job)
         
         return ChatResponse(
