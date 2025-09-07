@@ -141,7 +141,7 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
     Receive chat messages from clients - tries push first, then queue
     """
     # CONFIGURATION: Set to True to enable queue fallback
-    ENABLE_QUEUE_FALLBACK = False  # Currently disabled for testing
+    ENABLE_QUEUE_FALLBACK = True  # Re-enabled for reliability
     
     try:
         # Generate unique IDs
