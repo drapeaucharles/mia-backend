@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List, Dict
 from datetime import datetime
 
 class ChatRequest(BaseModel):
@@ -17,6 +17,8 @@ class ChatResponse(BaseModel):
     session_id: str = Field(..., description="Session identifier")
     status: str = Field(..., description="Job status")
     message: str = Field(..., description="Status message")
+    response: Optional[str] = Field(None, description="AI response (if completed)")
+    tool_calls: Optional[List[Dict]] = Field(None, description="Tool calls (if any)")
 
 class JobResponse(BaseModel):
     """Response model for /job/next endpoint"""
