@@ -51,22 +51,17 @@ export PIP_NO_CACHE_DIR=1
 export PIP_ONLY_BINARY=":all:"
 
 # === 6. Install PyTorch with CUDA ===
-echo "🔥 Installing PyTorch 2.7.1..."
-if ! pip install --index-url https://download.pytorch.org/whl/cu128 \
-    torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1; then
-    echo "  CUDA 12.8 not available, trying CUDA 12.1..."
-    pip install --index-url https://download.pytorch.org/whl/cu121 \
-        torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1
-fi
+echo "🔥 Installing PyTorch with CUDA support..."
+# Let pip resolve the correct version
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
-# === 7. Install vLLM and backends ===
-echo "⚡ Installing vLLM 0.10.1.1 and xFormers 0.0.31..."
-pip install vllm==0.10.1.1
-pip install xformers==0.0.31 || echo "  Warning: xFormers wheel not available"
+# === 7. Install vLLM and other packages ===
+echo "⚡ Installing vLLM and dependencies..."
+# Install vLLM - let pip resolve the version
+pip install vllm flask waitress aiohttp requests
 
-# Try flash-attn (wheel only, no source builds)
-echo "📦 Checking for flash-attn wheel..."
-PIP_ONLY_BINARY=":all:" pip install flash-attn 2>/dev/null || echo "  No flash-attn wheel available (OK)"
+# Try xformers if available
+pip install xformers || echo "  Warning: xFormers not available (OK)"
 
 # === 8. Move caches to /data ===
 echo "🗂️ Moving caches to /data..."
@@ -528,11 +523,7 @@ if [ ! -f "/usr/local/bin/bore" ]; then
     cd /data/qwen-awq-miner
 fi
 
-# === 12. Install additional packages for heartbeat miner ===
-echo "📦 Installing packages for heartbeat miner..."
-pip install flask waitress aiohttp
-
-# === 13. Create heartbeat miner with bore auto-restart ===
+# === 12. Create heartbeat miner with bore auto-restart ===
 cat > /data/qwen-awq-miner/mia_miner_heartbeat.py << 'EOF'
 #!/usr/bin/env python3
 """MIA Heartbeat Miner with bore.pub support and auto-restart"""
@@ -977,7 +968,7 @@ if __name__ == "__main__":
 EOF
 chmod +x /data/qwen-awq-miner/mia_miner_heartbeat.py
 
-# === 14. Create unified start script ===
+# === 13. Create unified start script ===
 cat > /data/qwen-awq-miner/start_mia_gpu.sh << 'EOF'
 #!/bin/bash
 cd /data/qwen-awq-miner
