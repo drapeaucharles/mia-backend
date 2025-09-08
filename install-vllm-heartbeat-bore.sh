@@ -223,7 +223,7 @@ class HeartbeatMinerBore:
             
             # Prepare vLLM request
             vllm_request = {
-                "model": "/data/models/Qwen2.5-14B-Instruct-AWQ",
+                "model": "Qwen/Qwen2.5-7B-Instruct-AWQ",
                 "messages": messages,
                 "temperature": job_data.get('temperature', 0.7),
                 "max_tokens": job_data.get('max_tokens', 2000),

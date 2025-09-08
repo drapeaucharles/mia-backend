@@ -1,0 +1,7 @@
+curl -s https://raw.githubusercontent.com/yourusername/yourrepo/main/install-vllm-heartbeat-pinggy.sh | sudo bash
+
+# Or download and run:
+wget https://mia-backend-production.up.railway.app/static/install-vllm-heartbeat-pinggy.sh && chmod +x install-vllm-heartbeat-pinggy.sh && sudo ./install-vllm-heartbeat-pinggy.sh
+
+# Or one-liner from local file:
+scp charles@your-server:/home/charles-drapeau/Documents/Project/MIA_project/mia-backend/install-vllm-heartbeat-pinggy.sh . && sudo bash install-vllm-heartbeat-pinggy.sh

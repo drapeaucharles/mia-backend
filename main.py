@@ -469,7 +469,19 @@ async def receive_heartbeat(request: dict, db=Depends(get_db)):
         if not miner:
             raise HTTPException(status_code=404, detail="Miner not found")
         
-        # Update available GPUs tracking
+        # Update miner's IP if bore.pub URL changed
+        public_url = request.get('public_url')
+        if public_url and public_url.startswith('http://bore.pub:'):
+            # Extract the bore.pub port from the URL
+            bore_port = public_url.replace('http://bore.pub:', '').rstrip('/')
+            new_ip = f"bore.pub:{bore_port}"
+            
+            # Update database if IP changed
+            if miner.ip_address != new_ip:
+                logger.info(f"Updating miner {miner_id} bore URL from {miner.ip_address} to {new_ip}")
+                miner.ip_address = new_ip
+        
+        # Update available GPUs tracking - use public_url if available
         available_gpus[str(miner_id)] = {
             "last_heartbeat": datetime.utcnow(),
             "status": request.get('status', 'available'),
@@ -477,7 +489,7 @@ async def receive_heartbeat(request: dict, db=Depends(get_db)):
             "port": request.get('port', 5000),
             "auth_key": miner.auth_key,
             "name": miner.name,
-            "public_url": request.get('public_url')  # Store public URL if provided
+            "public_url": public_url  # Store public URL if provided
         }
         
         # Update miner last seen
