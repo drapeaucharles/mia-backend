@@ -201,9 +201,10 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
                     
                     if result.get('success'):
                         # Store AI response in database
+                        response_text = result.get('response') or ''
                         ai_log = database.ChatLog(
                             session_id=session_id,
-                            message=result.get('response', ''),
+                            message=response_text,
                             role="assistant",
                             timestamp=datetime.utcnow()
                         )
@@ -215,7 +216,7 @@ async def create_chat_job(request: ChatRequest, db=Depends(get_db)):
                             session_id=session_id,
                             status="completed",
                             message="Job completed via push",
-                            response=result.get('response', ''),
+                            response=response_text,
                             tool_calls=result.get('tool_calls', [])
                         )
                     else:
