@@ -80,12 +80,15 @@ pkill -f "vllm.entrypoints.openai.api_server" 2>/dev/null || true
 sleep 2
 
 echo "Starting vLLM server..."
+# Force legacy engine to avoid v1 engine issues
+export VLLM_USE_V1=0
 nohup python -m vllm.entrypoints.openai.api_server \
     --model Qwen/Qwen2.5-7B-Instruct-AWQ \
     --quantization awq \
     --dtype half \
-    --max-model-len 12288 \
-    --gpu-memory-utilization 0.95 \
+    --max-model-len 8192 \
+    --gpu-memory-utilization 0.90 \
+    --enforce-eager \
     --host 0.0.0.0 \
     --port 8000 > vllm.log 2>&1 &
 
